@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#F8F9FA">
+  <meta name="color-scheme" content="light only">
+  <title>Orunex</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app" class="app">
+
+  <header class="topbar">
+    <button class="icon-button menu-button" id="openDrawer" aria-label="Open navigation">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <h1 class="page-title" id="pageTitle">Chat</h1>
+    <div class="powered">Powered by <b>Meta</b></div>
+  </header>
+
+  <main class="stage">
+
+    <section class="view view-chat is-active" id="view-chat" aria-label="Chat">
+      <div class="workspace">
+        <section class="chat-card">
+          <header class="chat-card-head">
+            <div class="chat-head-copy">
+              <h2 id="chatTitle">Hello</h2>
+              <p id="chatSubtitle">Ask Orunex anything or describe a task.</p>
+            </div>
+            <span class="ready-pill"><i></i>Ready</span>
+          </header>
+          <div class="chat-scroll" id="chatScroll">
+            <div class="empty-state" id="emptyState" hidden>
+              <h2>Hello, User</h2>
+              <p>How can I help you today?</p>
+              <div class="suggestion-grid">
+                <button class="suggestion" data-prompt="Plan a task">
+                  <strong>Plan a task</strong>
+                  <span>Break a goal into clear steps</span>
+                </button>
+                <button class="suggestion" data-prompt="Summarize a file">
+                  <strong>Summarize a file</strong>
+                  <span>Extract the key points from a document</span>
+                </button>
+                <button class="suggestion" data-prompt="Automate my desktop">
+                  <strong>Automate my desktop</strong>
+                  <span>Open apps and run actions for me</span>
+                </button>
+                <button class="suggestion" data-prompt="Check system status">
+                  <strong>Check system status</strong>
+                  <span>CPU, memory and running processes</span>
+                </button>
+              </div>
+            </div>
+            <div class="message-list" id="messageList"></div>
+          </div>
+        </section>
+
+        <div class="composer-zone">
+          <div class="composer-shell" id="composerShell">
+            <div class="composer-glow" aria-hidden="true"></div>
+            <div class="composer-rim" aria-hidden="true"></div>
+            <div class="composer-inner">
+              <select class="mode-select" id="modeSelect" aria-label="Chat mode">
+                <option value="Default">Default</option>
+                <option value="Programmer">✦ Programmer</option>
+                <option value="Deep Research">✦ Deep Research</option>
+                <option value="Agent Swapping">✦ Agent Swapping</option>
+              </select>
+              <button class="attach-button" id="attachButton" type="button">Attach</button>
+              <input class="composer-input" id="composerInput" type="text"
+                     autocomplete="off" autocapitalize="sentences" spellcheck="false"
+                     placeholder="Ask Orunex or describe a task..." enterkeyhint="send">
+              <button class="send-button" id="sendButton" type="button">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view view-page" id="view-simplex" aria-label="Simplex Bridge" hidden>
+      <div class="page-scroll">
+        <header class="page-head">
+          <h1>Simplex Bridge</h1>
+          <p>Pair Orunex with Simplex on your phone and control it over an end-to-end encrypted channel.</p>
+        </header>
+
+        <section class="panel connection-panel">
+          <div class="connection-top">
+            <span class="status-pill" id="simplexStatus"><i></i>Paired</span>
+            <div class="connection-actions">
+              <button class="button button-primary button-small" id="pairButton" type="button">Generate pairing link</button>
+              <button class="button button-ghost button-small" id="disconnectButton" type="button">Disconnect</button>
+            </div>
+          </div>
+          <p class="connection-detail" id="simplexDetail">Linked to Arturo_1. Remote commands and notifications are active.</p>
+
+          <div class="pair-grid">
+            <div class="qr-card" id="qrCard">
+              <canvas id="qrCanvas" width="512" height="512" aria-label="Pairing QR preview"></canvas>
+              <div class="qr-placeholder" id="qrPlaceholder">Your pairing QR<br>will appear here</div>
+            </div>
+            <div class="pair-info">
+              <h3>Pair in three steps</h3>
+              <ol class="steps">
+                <li><span>1</span>Tap the button above to create a secure invitation.</li>
+                <li><span>2</span>Open Simplex on your phone and scan the QR code.</li>
+                <li><span>3</span>Orunex becomes available for remote commands and notifications.</li>
+              </ol>
+              <label class="field-label" for="simplexLinkBox">Pairing link</label>
+              <div class="link-box" id="simplexLinkBox">No pairing link yet.</div>
+              <div class="link-actions">
+                <button class="button button-ghost button-small" id="copyLinkButton" type="button">Copy link</button>
+                <span class="inline-feedback" id="simplexFeedback"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3 class="panel-title">Bridge preferences</h3>
+          <p class="panel-subtitle">Choose what Orunex may send to your paired device.</p>
+          <div class="switch-list">
+            <label class="switch-row"><span>Notify me when a task finishes</span><input type="checkbox" id="prefNotify" checked><i></i></label>
+            <label class="switch-row"><span>Accept commands sent from Simplex</span><input type="checkbox" id="prefCommands" checked><i></i></label>
+            <label class="switch-row"><span>Send a local screenshot after tasks</span><input type="checkbox" id="prefScreenshot"><i></i></label>
+            <label class="switch-row"><span>Send remote screenshots automatically</span><input type="checkbox" id="prefRemoteScreenshot"><i></i></label>
+          </div>
+          <div class="panel-actions">
+            <button class="button button-primary" id="saveSimplexPrefs" type="button">Save preferences</button>
+            <span class="inline-feedback" id="simplexPrefsFeedback"></span>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="view view-page" id="view-settings" aria-label="Settings" hidden>
+      <div class="page-scroll">
+        <header class="page-head">
+          <h1>Settings</h1>
+          <p>Profile, engine behavior and knowledge sources for Orunex.</p>
+        </header>
+
+        <section class="panel">
+          <h3 class="panel-title">Profile</h3>
+          <div class="field-row">
+            <label for="displayName">Display name</label>
+            <input class="text-input" id="displayName" type="text" value="User" autocomplete="off">
+          </div>
+          <button class="button button-ghost button-small" id="manageMemory" type="button">Manage saved memory</button>
+        </section>
+
+        <section class="panel">
+          <h3 class="panel-title">Appearance</h3>
+          <div class="meta-row"><span>Theme</span><b>Light</b></div>
+          <div class="meta-row"><span>Language</span><b>English</b></div>
+          <div class="range-block">
+            <label for="scaleRange" id="scaleLabel">Interface scale: 100%</label>
+            <input type="range" id="scaleRange" min="80" max="140" step="1" value="100">
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3 class="panel-title">Engine</h3>
+          <p class="panel-subtitle">How Orunex executes and remembers tasks on this device.</p>
+          <div class="switch-list">
+            <label class="switch-row"><span>Automatic recovery on failure</span><input type="checkbox" id="autoHeal" checked><i></i></label>
+            <label class="switch-row"><span>Save task memory automatically</span><input type="checkbox" id="saveMemory" checked><i></i></label>
+            <label class="switch-row"><span>Screen glow while working</span><input type="checkbox" id="screenGlow" checked><i></i></label>
+          </div>
+          <div class="range-block">
+            <label for="retriesRange" id="retriesLabel">Maximum retries: 3</label>
+            <input type="range" id="retriesRange" min="1" max="5" step="1" value="3">
+          </div>
+          <div class="range-block">
+            <label for="contextRange" id="contextLabel">Context window: 16384 tokens</label>
+            <input type="range" id="contextRange" min="2048" max="128000" step="1024" value="16384">
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3 class="panel-title">Knowledge Hub</h3>
+          <p class="panel-subtitle">Upload structured data or documentation to extend the local knowledge base.</p>
+          <div class="panel-actions">
+            <button class="button button-ghost button-small" id="uploadJson" type="button">Upload JSON</button>
+            <button class="button button-ghost button-small" id="uploadPdf" type="button">Upload PDF</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3 class="panel-title">Connections</h3>
+          <div class="connection-shortcut">
+            <p>Simplex Bridge pairs Orunex with your phone for remote commands.</p>
+            <button class="button button-soft button-small" id="openSimplexFromSettings" type="button">Open Simplex Bridge</button>
+          </div>
+        </section>
+
+        <div class="save-row">
+          <button class="button button-primary" id="saveSettingsButton" type="button">Apply &amp; save</button>
+          <span class="inline-feedback" id="settingsFeedback"></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="drawer-scrim" id="drawerScrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-top">
+      <button class="icon-button" id="closeDrawer" aria-label="Close navigation">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <img class="wordmark" src="orunex-wordmark.png" alt="Orunex">
+    </div>
+    <button class="new-chat-button" id="newChatButton" type="button"><span>+</span>New chat</button>
+    <div class="drawer-chats">
+      <div class="eyebrow">Chats</div>
+      <div class="chat-list" id="chatList"></div>
+    </div>
+    <div class="drawer-footer">
+      <div class="drawer-rule"></div>
+      <div class="eyebrow">Menu</div>
+      <nav class="drawer-nav">
+        <button class="nav-button is-active" data-view="chat" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.1 6.2 6.2 2.1-6.2 2.1L12 19.4l-2.1-6.2-6.2-2.1 6.2-2.1L12 2.8z"/></svg>
+          <span>Chat</span>
+        </button>
+        <button class="nav-button" data-view="simplex" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 14.8l-1.7 1.7a3.9 3.9 0 010-5.5l3.2-3.2a3.9 3.9 0 015.5 0M15.8 9.2l1.7-1.7a3.9 3.9 0 010 5.5l-3.2 3.2a3.9 3.9 0 01-5.5 0"/></svg>
+          <span>Simplex Bridge</span>
+        </button>
+        <button class="nav-button" data-view="settings" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5A3.5 3.5 0 1012 15.5 3.5 3.5 0 0012 8.5z"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6v.2h-4V21a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 00.3-1.9A1.7 1.7 0 003 14H2.8v-4H3a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 009 4.6a1.7 1.7 0 001-1.6v-.2h4V3a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 00-.3 1.9 1.7 1.7 0 001.6 1h.2v4H21a1.7 1.7 0 00-1.6 1z"/></svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+      <button class="drawer-status" id="drawerStatus" type="button"><i></i><span>Simplex · Paired</span></button>
+    </div>
+  </aside>
+
+  <div class="chat-menu" id="chatMenu" hidden></div>
+  <div class="dialog-layer" id="dialogLayer" hidden>
+    <div class="dialog-card" id="dialogCard" role="dialog" aria-modal="true"></div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <div class="splash" id="splash">
+    <img class="splash-word splash-wordmark" src="orunex-wordmark.png" alt="Orunex" />
+    <div class="splash-sub">MOBILE AGENT</div>
+  </div>
+
+  <input type="file" id="fileInput" hidden>
+</div>
+<script src="qrcode.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
