@@ -3,7 +3,7 @@
 
 Subcommands:
     python scripts/prepare_hackathon_demo.py start-emulator
-    python scripts/prepare_hackathon_demo.py plant-bug     # Send -> Sned + rebuild + install
+    python scripts/prepare_hackathon_demo.py plant-bug     # plant demo defect + rebuild + install
     python scripts/prepare_hackathon_demo.py seed          # FAISS: android code + strategies
     python scripts/prepare_hackathon_demo.py reset-paper   # clean $10k paper account
     python scripts/prepare_hackathon_demo.py status        # one-screen readiness check
@@ -77,14 +77,15 @@ def start_emulator(avd: str) -> int:
 def _set_label(target: str) -> bool:
     html = INDEX_HTML.read_text(encoding="utf-8")
     source, wanted = (SEND, SNED) if target == "Sned" else (SNED, SEND)
+    shown = "Send" if target == "Send" else "demo defect"
     if wanted in html:
-        print(f"Label already {target}.")
+        print(f"Label already {shown}.")
         return True
     if source not in html:
         print("Send button markup not found; aborting.")
         return False
     INDEX_HTML.write_text(html.replace(source, wanted, 1), encoding="utf-8")
-    print(f"Label set to {target} in {INDEX_HTML.name}.")
+    print(f"Label set to {shown} in {INDEX_HTML.name}.")
     return True
 
 
@@ -185,7 +186,7 @@ def status() -> int:
             print("WARNING: open paper order(s) present; Muse may HOLD the demo alert. "
                   "Run reset-paper before recording.")
         html = INDEX_HTML.read_text(encoding="utf-8")
-        print("Android button label:", "Sned (bug planted)" if SNED in html else "Send (clean)")
+        print("Android button label:", "Demo defect planted" if SNED in html else "Send (clean)")
         return 0
     finally:
         brain.shutdown()

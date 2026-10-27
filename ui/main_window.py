@@ -107,7 +107,7 @@ class MainWindow(ctk.CTk):
             android, placeholder_text="Voice/text instruction (optional)…")
         self.fix_instruction.pack(fill="x", padx=10, pady=(6, 4))
         self.fix_instruction.insert(
-            0, "The blue send button label is misspelled as 'Sned'; it should say 'Send'. Fix it.")
+            0, "The blue send button should say 'Send'.")
         self.auto_apply = ctk.CTkSwitch(android, text="Auto-apply patch (guarded)")
         self.auto_apply.pack(anchor="w", padx=10, pady=3)
         self.auto_apply.select()  # demo autonomy on; the patch guard still applies

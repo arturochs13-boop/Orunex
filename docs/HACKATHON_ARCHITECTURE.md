@@ -107,7 +107,7 @@ Rehearsal (verified on the real emulator, AVD `Transportes65`):
 ```powershell
 python scripts\prepare_hackathon_demo.py start-emulator
 python scripts\prepare_hackathon_demo.py reset-paper  # clean $10k paper account
-python scripts\prepare_hackathon_demo.py plant-bug   # Send -> Sned, rebuild, install
+python scripts\prepare_hackathon_demo.py plant-bug   # plant demo defect, rebuild, install
 python scripts\prepare_hackathon_demo.py seed        # FAISS code + strategies
 python scripts\prepare_hackathon_demo.py status      # everything green?
 python app.py
@@ -118,7 +118,7 @@ snapshot combination was unstable.  If the paper account already has an open
 order, Muse may correctly HOLD the same alert to respect exposure, so
 `reset-paper` is part of demo preparation.
 
-1. Show the emulator: the blue button visibly says **Sned**.
+1. Show the emulator: the blue button visibly contains the demo typo.
 2. In the UI press **Capture → Diagnose → Fix (Live)** (instruction and
    auto-apply are pre-filled) and follow the console chain:
    diagnosis → FAISS Match → exact evidence → patch in VS Code → Gradle
