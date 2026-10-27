@@ -46,5 +46,9 @@ tmp_scan_out.txt
 # --- Secretos ---
 .env
 .env.*
+!.env.example
 *.pem
 *.key
+
+# --- Datos del agente hackathon (FAISS, paper trading, backups) ---
+data/

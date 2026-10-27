@@ -1,0 +1,7 @@
+requests>=2.32
+numpy>=1.26
+faiss-cpu>=1.9
+customtkinter>=5.2
+Pillow>=10
+websocket-client>=1.8
+python-dotenv>=1.0
