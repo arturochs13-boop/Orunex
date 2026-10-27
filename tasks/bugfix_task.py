@@ -18,6 +18,7 @@ this task itself is transport-agnostic and UI-free.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,8 +53,10 @@ DIAGNOSIS_SYSTEM = (
 PATCH_SYSTEM = (
     "You are Muse Spark, a senior Android engineer. Choose the ONE candidate "
     "file that owns the broken component and propose a minimal exact patch. "
-    "Each 'search' string must be copied verbatim from the candidate snippet "
-    "and occur exactly once in that file. Never invent code that is not shown."
+    "Candidates may include an 'EXACT SOURCE LINES' block; its 'Lx:' prefixes "
+    "are only for orientation, so copy the source text after them verbatim. "
+    "Each 'search' string must be copied verbatim from the shown source and "
+    "occur exactly once in that file. Never invent code that is not shown."
 )
 
 
@@ -79,6 +82,48 @@ class AndroidBugfixTask:
         if self.bus:
             self.bus.log(stage, message, level=level, next_stage=nxt)
 
+    def _evidence_block(
+        self,
+        path_value: Any,
+        tokens: list[str],
+        weights: dict[str, float],
+        *,
+        radius: int = 3,
+        max_hits: int = 6,
+    ) -> str:
+        """Exact source lines around diagnosis terms (deterministic retrieval).
+
+        FAISS chunks can be longer than the snippet budget, so the line that
+        contains the visible typo may fall outside it.  This block guarantees
+        Muse can copy a literal ``search`` string without inventing code.
+        """
+        if not path_value or not tokens:
+            return ""
+        try:
+            path = Path(str(path_value)).resolve()
+            workspace = self.settings.workspace_root.resolve()
+            if workspace not in path.parents or not path.is_file():
+                return ""
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            return ""
+        ranked: list[tuple[float, int]] = []
+        for index, line in enumerate(lines):
+            lowered = line.lower()
+            score = sum(weights.get(token, 1.0) for token in tokens if token in lowered)
+            if score:
+                ranked.append((score, index))
+        if not ranked:
+            return ""
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        chosen: set[int] = set()
+        for _, index in ranked[:max_hits]:
+            chosen.update(range(max(0, index - radius), min(len(lines), index + radius + 1)))
+            if len(chosen) >= 40:
+                break
+        block = "\n".join(f"L{index + 1}: {lines[index]}" for index in sorted(chosen))
+        return block[:4_000]
+
     # ------------------------------------------------------------------- run
     def run(self, request: Optional[BugfixRequest] = None) -> TaskResult:
         request = request or BugfixRequest()
@@ -90,8 +135,25 @@ class AndroidBugfixTask:
         try:
             # 1) Capture -----------------------------------------------------
             self._log(BRAIN, "Bugfix pipeline started", nxt=ADB)
-            image = self.adb.screencap()
+            package = request.package or self.settings.android_package
+            ensure = getattr(self.adb, "ensure_device", None)
+            if callable(ensure):
+                ensure()
+            wake = getattr(self.adb, "wake", None)
+            if callable(wake):
+                wake()
+            keep_awake = getattr(self.adb, "keep_screen_awake", None)
+            if callable(keep_awake):
+                keep_awake()
             focus = self.adb.current_focus()
+            if package not in focus:
+                self._log(ADB, f"Foregrounding {package}", nxt=META)
+                self.adb.launch(package)
+                if not self.adb.wait_for_focus(package, timeout=20):
+                    raise RuntimeError(f"Could not bring {package} to the foreground.")
+                time.sleep(1.2)
+                focus = self.adb.current_focus()
+            image = self.adb.screencap()
             hierarchy = self.adb.ui_hierarchy()
             logcat = self.adb.recent_errors()
 
@@ -123,12 +185,25 @@ class AndroidBugfixTask:
                 return result.finish(TaskState.COMPLETED, "No UI error detected on screen.")
 
             # 3) FAISS Match ---------------------------------------------------
-            if request.index_codebase_first and self.memory.stats()["kinds"].get("code", 0) == 0:
-                self._log(FAISS, "Code index empty -> indexing workspace", nxt=FAISS)
-                self.memory.index_codebase()
+            if request.index_codebase_first:
+                # Incremental refresh keeps candidate snippets in sync with the
+                # file on disk (e.g. after re-planting the demo defect).
+                self._log(FAISS, "Refreshing code index (incremental)", nxt=FAISS)
+                index_root = self.settings.android_project_dir
+                if not index_root.is_dir():
+                    index_root = self.settings.workspace_root
+                added = self.memory.index_codebase(index_root)
+                if added:
+                    self._log(FAISS, f"Code index refreshed: +{added} chunk(s)", nxt=FAISS)
+            visible = diagnosis.get("visible_text") or []
+            if isinstance(visible, str):
+                visible = [visible]
+            elif not isinstance(visible, (list, tuple)):
+                visible = [visible]
             query = " ".join(str(x) for x in [
                 diagnosis.get("search_query", ""), diagnosis.get("component", ""),
-                diagnosis.get("suspected_cause", ""), request.instruction,
+                diagnosis.get("suspected_cause", ""),
+                " ".join(str(v) for v in visible), request.instruction,
             ]).strip()
             candidates = self.memory.find_code_candidates(query, top_k=5)
             result.data["candidates"] = [
@@ -149,13 +224,43 @@ class AndroidBugfixTask:
             )
 
             # 4) Muse chooses file + exact patch ------------------------------
+            evidence_text = " ".join(str(x) for x in [
+                " ".join(str(v) for v in visible),
+                diagnosis.get("search_query", ""), diagnosis.get("component", ""),
+                diagnosis.get("suspected_cause", ""), request.instruction,
+            ])
+            evidence_tokens = list(dict.fromkeys(
+                re.findall(r"[A-Za-z0-9_.$#-]{3,}", evidence_text.lower())
+            ))
+            weights: dict[str, float] = {}
+            for token in evidence_tokens:
+                docs = sum(1 for c in candidates if token in c["text"].lower())
+                weights[token] = 3.0 if docs == 1 else 1.0  # rare = distinctive
             candidate_blocks = []
+            evidence_count = 0
             for index, cand in enumerate(candidates, start=1):
                 meta = cand["metadata"]
-                candidate_blocks.append(
+                evidence = self._evidence_block(
+                    meta.get("absolute_path"), evidence_tokens, weights
+                )
+                if evidence:
+                    evidence_count += 1
+                block = (
                     f"--- CANDIDATE {index}: {meta.get('path')} "
                     f"(lines from {meta.get('line_start')}, symbols={meta.get('symbols')}) ---\n"
-                    f"{cand['text'][:2600]}"
+                    f"{cand['text'][:2200]}"
+                )
+                if evidence:
+                    block += (
+                        f"\n--- EXACT SOURCE LINES FROM {meta.get('path')} "
+                        f"(copy the text after 'Lx: ') ---\n{evidence}"
+                    )
+                candidate_blocks.append(block)
+            if evidence_count:
+                self._log(
+                    FAISS,
+                    f"Attached exact evidence lines for {evidence_count} candidate(s)",
+                    nxt=META,
                 )
             patch = self.meta.reason_json(
                 system=PATCH_SYSTEM,
@@ -214,20 +319,63 @@ class AndroidBugfixTask:
                 build = self.vscode.build_android()
                 result.data["build"] = build
                 apk = build.get("apk")
-                if build.get("built") and apk:
-                    self.adb.install(Path(apk))
-            self.adb.restart_app(request.package or None)
+                if not build.get("built") or not apk:
+                    detail = str(
+                        build.get("message") or build.get("output_tail") or "unknown build error"
+                    )[-500:]
+                    return result.finish(
+                        TaskState.FAILED,
+                        f"Patch applied to {patch_result.path.name}, but the Android "
+                        f"rebuild failed: {detail}",
+                    )
+                self.adb.install(Path(apk))
+            focused = self.adb.restart_app(request.package or None)
+            if focused is False:
+                self._log(
+                    ADB, "App did not regain focus; retrying launch", level="WARN", nxt=META
+                )
+                self.adb.launch(request.package or None)
+                self.adb.wait_for_focus(request.package or None, timeout=15)
             time.sleep(3.0)  # WebView first paint can lag the focus change
             verify_image = self.adb.screencap()
-            verification = self.meta.reason_json(
-                system="You are Muse Spark verifying an Android UI fix from pixels only.",
-                user=(
-                    f"Original diagnosis: {diagnosis}. Patch rationale: "
-                    f"{patch.get('rationale')}. Is the error gone in this new screenshot?"
-                ),
-                schema_hint=VERIFY_SCHEMA,
-                images=[verify_image],
-            )
+            # A cold WebView can report focus while still showing a blank
+            # frame.  Wait until the frame has real content (measured by PNG
+            # size relative to the pre-patch capture) before asking Muse.
+            if len(image) >= 20_000:
+                expected = max(40_000, len(image) // 2)
+                deadline = time.monotonic() + 12.0
+                if len(verify_image) < expected:
+                    self._log(
+                        ADB, "Verification frame still painting; waiting for content",
+                        nxt=META,
+                    )
+                while len(verify_image) < expected and time.monotonic() < deadline:
+                    time.sleep(1.5)
+                    verify_image = self.adb.screencap()
+                if len(verify_image) >= expected:
+                    self._log(
+                        ADB, f"Verification frame ready ({len(verify_image) // 1024} KB)",
+                        nxt=META,
+                    )
+            verification: dict[str, Any] = {}
+            for attempt in range(2):
+                verification = self.meta.reason_json(
+                    system="You are Muse Spark verifying an Android UI fix from pixels only.",
+                    user=(
+                        f"Original diagnosis: {diagnosis}. Patch rationale: "
+                        f"{patch.get('rationale')}. Is the error gone in this new screenshot?"
+                    ),
+                    schema_hint=VERIFY_SCHEMA,
+                    images=[verify_image],
+                )
+                if verification.get("fixed") or attempt:
+                    break
+                self._log(
+                    META, "Verification not fixed yet; recapturing after settle",
+                    level="WARN",
+                )
+                time.sleep(2.0)
+                verify_image = self.adb.screencap()
             result.data["verification"] = verification
             fixed = bool(verification.get("fixed"))
             self.memory.remember(

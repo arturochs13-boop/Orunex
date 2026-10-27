@@ -160,7 +160,8 @@ class AndroidADBBridge:
             # rendering saturated SystemUI in testing. RAM stays capped.
             subprocess.Popen(
                 [str(emulator), "-avd", avd, "-netdelay", "none", "-netspeed", "full",
-                 "-gpu", "auto", "-memory", "2048"],
+                 "-gpu", "angle_indirect", "-memory", "1536", "-no-audio",
+                 "-no-boot-anim", "-no-snapshot", "-no-snapshot-save"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
@@ -275,13 +276,30 @@ class AndroidADBBridge:
             time.sleep(0.5)
         return False
 
-    def restart_app(self, package: Optional[str] = None, *, settle: float = 2.5) -> None:
+    def wake(self) -> None:
+        """Wake the display and dismiss a non-secure keyguard (idempotent)."""
+        self.run(["shell", "input", "keyevent", "224"], timeout=10, check=False)
+        self.run(["shell", "wm", "dismiss-keyguard"], timeout=10, check=False)
+
+    def keep_screen_awake(self) -> None:
+        """Keep the demo device awake while it is charging."""
+        self.run(["shell", "svc", "power", "stayon", "true"], timeout=10, check=False)
+        self.run(
+            ["shell", "settings", "put", "system", "screen_off_timeout", "1800000"],
+            timeout=10, check=False,
+        )
+
+    def restart_app(self, package: Optional[str] = None, *, settle: float = 2.5) -> bool:
         self.force_stop(package)
         time.sleep(0.6)
         self.launch(package)
-        self.wait_for_focus(package)
+        focused = self.wait_for_focus(package)
+        if not focused:  # one cold-start retry before giving up
+            self.launch(package)
+            focused = self.wait_for_focus(package, timeout=10)
         if settle > 0:
             time.sleep(settle)  # let splash/WebView finish before any screenshot
+        return focused
 
     def install(self, apk_path: Path, *, replace: bool = True) -> None:
         args = ["install"] + (["-r"] if replace else []) + [str(apk_path)]

@@ -5,16 +5,18 @@ Subcommands:
     python scripts/prepare_hackathon_demo.py start-emulator
     python scripts/prepare_hackathon_demo.py plant-bug     # Send -> Sned + rebuild + install
     python scripts/prepare_hackathon_demo.py seed          # FAISS: android code + strategies
+    python scripts/prepare_hackathon_demo.py reset-paper   # clean $10k paper account
     python scripts/prepare_hackathon_demo.py status        # one-screen readiness check
     python scripts/prepare_hackathon_demo.py reset         # ensure the app says Send
 
-Run `plant-bug` + `seed` before recording, then drive the fix live from
-`python app.py` so the audience sees the whole autonomous repair.
+Run `reset-paper` + `plant-bug` + `seed` before recording, then drive the fix
+live from `python app.py` so the audience sees the whole autonomous repair.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -53,7 +55,8 @@ def start_emulator(avd: str) -> int:
         return 1
     subprocess.Popen(
         [str(emulator), "-avd", avd, "-netdelay", "none", "-netspeed", "full",
-         "-gpu", "auto", "-memory", "2048"],
+         "-gpu", "angle_indirect", "-memory", "1536", "-no-audio",
+         "-no-boot-anim", "-no-snapshot", "-no-snapshot-save"],
         creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
     )
     print(f"Emulator {avd} starting…")
@@ -95,6 +98,8 @@ def plant_bug() -> int:
             print("Build failed:", build)
             return 1
         brain.adb.ensure_device()
+        brain.adb.wake()
+        brain.adb.keep_screen_awake()
         brain.adb.install(Path(build["apk"]))
         brain.adb.launch()
         brain.adb.wait_for_focus(timeout=20)
@@ -115,6 +120,8 @@ def reset() -> int:
             print("Build failed:", build)
             return 1
         brain.adb.ensure_device()
+        brain.adb.wake()
+        brain.adb.keep_screen_awake()
         brain.adb.install(Path(build["apk"]))
         brain.adb.launch()
         print("Clean app installed (button says Send).")
@@ -143,6 +150,27 @@ def seed() -> int:
         brain.shutdown()
 
 
+def reset_paper() -> int:
+    brain = _brain()
+    try:
+        path = brain.settings.paper_state_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {"balance": float(brain.settings.paper_initial_balance), "orders": []},
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        print(
+            f"Paper account reset: {brain.settings.paper_initial_balance:.2f} "
+            f"{brain.settings.paper_currency}, 0 open orders."
+        )
+        return 0
+    finally:
+        brain.shutdown()
+
+
 def status() -> int:
     brain = _brain()
     try:
@@ -153,6 +181,9 @@ def status() -> int:
         print("Memory:", diag["memory"])
         print("Paper:", diag["paper"]["mode"], diag["paper"]["balance"],
               brain.settings.paper_currency, "| open:", len(diag["paper"]["open_orders"]))
+        if diag["paper"]["open_orders"]:
+            print("WARNING: open paper order(s) present; Muse may HOLD the demo alert. "
+                  "Run reset-paper before recording.")
         html = INDEX_HTML.read_text(encoding="utf-8")
         print("Android button label:", "Sned (bug planted)" if SNED in html else "Send (clean)")
         return 0
@@ -162,13 +193,17 @@ def status() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Hackathon demo preparation")
-    parser.add_argument("command", choices=["start-emulator", "plant-bug", "seed", "status", "reset"])
+    parser.add_argument(
+        "command",
+        choices=["start-emulator", "plant-bug", "seed", "reset-paper", "status", "reset"],
+    )
     parser.add_argument("--avd", default=os.environ.get("DEMO_AVD", "Transportes65"))
     args = parser.parse_args()
     return {
         "start-emulator": lambda: start_emulator(args.avd),
         "plant-bug": plant_bug,
         "seed": seed,
+        "reset-paper": reset_paper,
         "status": status,
         "reset": reset,
     }[args.command]()

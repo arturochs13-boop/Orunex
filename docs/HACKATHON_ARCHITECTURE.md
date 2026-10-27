@@ -106,23 +106,32 @@ Rehearsal (verified on the real emulator, AVD `Transportes65`):
 
 ```powershell
 python scripts\prepare_hackathon_demo.py start-emulator
+python scripts\prepare_hackathon_demo.py reset-paper  # clean $10k paper account
 python scripts\prepare_hackathon_demo.py plant-bug   # Send -> Sned, rebuild, install
 python scripts\prepare_hackathon_demo.py seed        # FAISS code + strategies
 python scripts\prepare_hackathon_demo.py status      # everything green?
 python app.py
 ```
 
+Use this launcher (ANGLE + cold boot, no snapshot); the host's GPU-auto +
+snapshot combination was unstable.  If the paper account already has an open
+order, Muse may correctly HOLD the same alert to respect exposure, so
+`reset-paper` is part of demo preparation.
+
 1. Show the emulator: the blue button visibly says **Sned**.
 2. In the UI press **Capture → Diagnose → Fix (Live)** (instruction and
    auto-apply are pre-filled) and follow the console chain:
-   diagnosis → FAISS Match → patch in VS Code → Gradle rebuild → install →
-   restart → Muse verification `fixed=true` (~70 s total).
+   diagnosis → FAISS Match → exact evidence → patch in VS Code → Gradle
+   rebuild → install → restart → Muse verification `fixed=true`
+   (~60–100 s total).
 3. Send the pre-filled TradingView alert with **Analyse with Muse → Paper
    Order** and show **PAPER ORDER CONFIRMED** with SL/TP and position sizing.
-4. Start the Simplex listener, send `!stop` from the phone, and show the
+4. Start the Simplex listener, wait until the status shows `connected` (~5 s
+   history-suppression window), then send `!stop` from the phone and show the
    kill switch halting paper trading.
 5. Afterwards restore the clean app with
-   `python scripts\prepare_hackathon_demo.py reset`.
+   `python scripts\prepare_hackathon_demo.py reset`; run `reset-paper` again
+   before the next rehearsal.
 
 If the emulator is closed, the ADB bridge auto-starts the configured AVD
 (`ANDROID_AVD`) and waits for boot — no manual step needed.
