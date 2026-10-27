@@ -1,0 +1,18 @@
+{
+    "engine": "light",
+    "ctx_len": 16384,
+    "vram_limit": "auto",
+    "threads": 4,
+    "persona": "kernel",
+    "language": "en",
+    "voice_enabled": true,
+    "user_name": "User",
+    "language_full": "English",
+    "ui_scale": 1.09,
+    "auto_heal": true,
+    "mem_record": true,
+    "screen_glow": true,
+    "max_retries": 2,
+    "send_screenshot": true,
+    "send_remote_screenshot": false
+}

@@ -1,0 +1,50 @@
+# --- Binarios grandes / runtimes empaquetados ---
+simplex_bin/
+src/simplex_bin/
+*.exe
+*.msi
+*.apk
+*.aab
+
+# --- Artefactos de build y caché ---
+__pycache__/
+*.py[cod]
+*.pyo
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+node_modules/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.egg-info/
+
+# --- Datos de ejecución y personales ---
+simplex_data/
+src/simplex_data/
+src/config/chats.json
+src/logs/
+src/scratch/
+src/src/
+src/orunex_knowledge.db
+src/orunex_outputs/
+orunex_outputs/
+logs/
+*.log
+simplex_raw_debug.json
+simplex_raw_log.json
+permanent_memory.txt
+memory.index
+memory.index.meta.json
+
+# --- Capturas y material de pruebas ---
+scratch/
+test_res.txt
+tmp_scan_out.txt
+
+# --- Secretos ---
+.env
+.env.*
+*.pem
+*.key

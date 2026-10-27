@@ -1,0 +1,33 @@
+{
+  "name": "orunex-bridge",
+  "displayName": "Orunex Bridge",
+  "description": "Local bridge that lets the Orunex desktop agent open files, edit code, run tests and use the VS Code integrated terminal.",
+  "version": "0.1.0",
+  "publisher": "orunex",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "orunex.startBridge",
+        "title": "Orunex: Start Bridge"
+      },
+      {
+        "command": "orunex.stopBridge",
+        "title": "Orunex: Stop Bridge"
+      },
+      {
+        "command": "orunex.showStatus",
+        "title": "Orunex: Show Bridge Status"
+      }
+    ]
+  }
+}

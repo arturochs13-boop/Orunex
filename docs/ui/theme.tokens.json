@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "name": "Orunex / LlamaOS Agent — Light UI",
+    "version": "2.0.0",
+    "date": "2026-10-21",
+    "description": "Light, minimal design tokens for the recycled CustomTkinter desktop shell and the Android client.",
+    "sourceOfTruth": "docs/ui/theme.tokens.json"
+  },
+  "color": {
+    "bg": "#F8F9FA",
+    "stage": "#E9EDF2",
+    "surface": "#FFFFFF",
+    "surfaceSoft": "#F8F9FA",
+    "surfaceMuted": "#F2F4F7",
+    "border": "#E6E9EE",
+    "borderStrong": "#D9DEE6",
+    "text": "#111318",
+    "textSecondary": "#475467",
+    "muted": "#667085",
+    "faint": "#98A2B3",
+    "primary": "#0668E1",
+    "primaryHover": "#0059C7",
+    "primarySoft": "#EDF4FF",
+    "primaryBorder": "#CFE2FF",
+    "accent": "#0081FB",
+    "danger": "#E15241",
+    "dangerSoft": "#FEF1EF",
+    "dangerBorder": "#F4CFC9",
+    "focusRing": "rgba(6, 104, 225, 0.18)"
+  },
+  "typography": {
+    "fontFamily": {
+      "ui": "Inter, 'Segoe UI', Roboto, Arial, sans-serif",
+      "mono": "'JetBrains Mono', 'Cascadia Code', Consolas, monospace"
+    },
+    "weight": {
+      "regular": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    },
+    "size": {
+      "display": 18,
+      "h1": 16,
+      "body": 13,
+      "bodySmall": 12,
+      "caption": 10.5,
+      "micro": 9,
+      "code": 11
+    },
+    "lineHeight": {
+      "tight": 1.2,
+      "normal": 1.45,
+      "relaxed": 1.55
+    },
+    "letterSpacing": {
+      "heading": "-0.015em",
+      "title": "-0.025em",
+      "label": "0.035em"
+    }
+  },
+  "space": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 20,
+    "6": 24,
+    "8": 32
+  },
+  "radius": {
+    "sm": 6,
+    "md": 8,
+    "lg": 10,
+    "xl": 12,
+    "2xl": 16,
+    "3xl": 20,
+    "pill": 999
+  },
+  "shadow": {
+    "app": "0 24px 64px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.04)",
+    "composer": "0 8px 24px rgba(16, 24, 40, 0.09), 0 1px 2px rgba(16, 24, 40, 0.03)",
+    "focus": "0 0 0 3px rgba(6, 104, 225, 0.08)"
+  },
+  "layout": {
+    "desktop": {
+      "width": 1240,
+      "height": 840,
+      "minWidth": 1040,
+      "minHeight": 720,
+      "topbarHeight": 72,
+      "toolbarHeight": 54,
+      "gap": 14,
+      "composerHeight": 58
+    },
+    "android": {
+      "screenWidth": 390,
+      "screenHeight": 844,
+      "headerHeight": 88,
+      "composerHeight": 54,
+      "touchTarget": 44
+    }
+  },
+  "component": {
+    "button": {
+      "height": 34,
+      "radius": 9,
+      "fontSize": 12,
+      "fontWeight": 600
+    },
+    "statusPill": {
+      "height": 27,
+      "radius": 999,
+      "fontSize": 10.5,
+      "fontWeight": 600
+    },
+    "card": {
+      "radius": 16,
+      "borderWidth": 1,
+      "padding": 20
+    },
+    "chatBubble": {
+      "userRadius": "16px 16px 5px 16px",
+      "fontSize": 13.5
+    }
+  }
+}

@@ -1,0 +1,20 @@
+customtkinter==5.2.2
+pillow==12.1.1
+pyautogui==0.9.54
+fpdf2==2.8.6
+python-docx==1.2.0
+openpyxl==3.1.5
+python-pptx==1.0.2
+opencv-python==4.13.0.92
+requests==2.32.5
+websocket-client>=1.8.0
+qrcode[pil]>=7.4.2
+psutil>=5.9.0
+# Persistent long-term vector memory
+faiss-cpu>=1.9.0
+numpy>=1.26,<3
+# Live mode microphone capture (Meta speech-to-text)
+sounddevice>=0.5.0
+# Human-quality neural voice for Live responses (SAPI remains as fallback)
+edge-tts>=7.0.0
+pygame>=2.6.0

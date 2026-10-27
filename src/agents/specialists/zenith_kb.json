@@ -1,0 +1,496 @@
+{
+    "modules": {
+        "main_av.py": {
+            "functions": [
+                "start_proactive_copilot",
+                "ide_new_file",
+                "toggle_ide",
+                "_bg",
+                "connect_simplex",
+                "open_widget",
+                "field_row",
+                "do_clear_session",
+                "_process_remote_task",
+                "section_header",
+                "ide_open_file",
+                "write_real_time",
+                "make_sliders",
+                "on_resize",
+                "start_simplex_monitor",
+                "handle_simplex_command",
+                "speak_thread",
+                "show_agent_tooltip",
+                "show",
+                "del_file",
+                "make_power_menu",
+                "runner",
+                "make_theme_menu",
+                "on_success",
+                "_refresh_simplex_btn",
+                "_apply_config_v2",
+                "ide_save_file",
+                "hide_splash",
+                "remote_voice_thread",
+                "refresh_ui_text",
+                "add_task_field",
+                "__init__",
+                "show_copilot_suggestion",
+                "cancel_execution",
+                "listen_voice",
+                "execute_single_agent",
+                "make_lang_menu",
+                "run_silent_agent_task",
+                "close_tab",
+                "_on_close_hook",
+                "ide_load_local_file",
+                "fade_in",
+                "create_ui",
+                "toggle_pause",
+                "open_integrations_dashboard",
+                "_bg_connect",
+                "get_active_history",
+                "start_maintenance_loop",
+                "update_simplex_modal",
+                "open_copiloto",
+                "_get_file_icon",
+                "open_task_list_builder",
+                "clear_chat",
+                "toggle_fullscreen",
+                "send_task",
+                "ide_execute_file",
+                "highlight_syntax",
+                "update_editor",
+                "enable_ide_mode",
+                "on_enter",
+                "append_history",
+                "copy_text",
+                "monitor_loop",
+                "show_splash",
+                "make_name_entry",
+                "open_gemini_memory_manager",
+                "ui_confirm_dangerous_action",
+                "make_del",
+                "_trigger_save",
+                "_process_remote_voice_task",
+                "update_pill",
+                "load_image",
+                "refresh_list",
+                "show_simplex_qr_modal",
+                "select_agent",
+                "execute_list",
+                "remote_thread",
+                "on_error",
+                "ide_refresh_explorer",
+                "handle_remote_task",
+                "add_chat_tab",
+                "hide_agent_tooltip",
+                "_build_workspace",
+                "make_toggles",
+                "handle_remote_command",
+                "fade_out_and_destroy",
+                "do_del",
+                "hang_up",
+                "disable_ide_mode",
+                "copilot_loop",
+                "_process_reconstruct_approval",
+                "task_thread",
+                "audio_callback",
+                "rem_row",
+                "trigger_auto_integrate",
+                "end_fullscreen",
+                "open_config",
+                "add_files",
+                "update_action_buttons",
+                "run_exec",
+                "open_automations_canvas",
+                "call_loop"
+            ],
+            "size_b": 133088
+        },
+        "agents\\automatizador.py": {
+            "functions": [
+                "read_attached_file",
+                "run"
+            ],
+            "size_b": 4025
+        },
+        "agents\\cerebro.py": {
+            "functions": [
+                "_get_project_tree",
+                "read_attached_file",
+                "run"
+            ],
+            "size_b": 12354
+        },
+        "agents\\empresarial.py": {
+            "functions": [
+                "read_attached_file",
+                "run"
+            ],
+            "size_b": 3914
+        },
+        "agents\\general.py": {
+            "functions": [
+                "read_attached_file",
+                "run"
+            ],
+            "size_b": 5516
+        },
+        "agents\\supervisor.py": {
+            "functions": [
+                "decide_agent"
+            ],
+            "size_b": 861
+        },
+        "agents\\trader.py": {
+            "functions": [
+                "read_attached_file",
+                "run"
+            ],
+            "size_b": 3529
+        },
+        "agents\\universal.py": {
+            "functions": [
+                "voice_synthesis",
+                "run"
+            ],
+            "size_b": 1258
+        },
+        "agents\\__init__.py": {
+            "functions": [],
+            "size_b": 130
+        },
+        "integrations\\social_media.py": {
+            "functions": [
+                "post_twitter",
+                "publish_tweet",
+                "open_network",
+                "search_on_network",
+                "execute",
+                "send_whatsapp",
+                "_open_url"
+            ],
+            "size_b": 4211
+        },
+        "integrations\\vscode_integration.py": {
+            "functions": [
+                "new_terminal",
+                "open_folder",
+                "install_extension",
+                "execute",
+                "_code_available",
+                "open_file",
+                "run_task",
+                "search_in_files",
+                "_fallback_open"
+            ],
+            "size_b": 4614
+        },
+        "integrations\\__init__.py": {
+            "functions": [],
+            "size_b": 0
+        },
+        "scripts\\ai_trainer.py": {
+            "functions": [
+                "write",
+                "run_trainer",
+                "flush"
+            ],
+            "size_b": 6823
+        },
+        "scripts\\ai_trainer_advanced.py": {
+            "functions": [
+                "run_advanced_trainer"
+            ],
+            "size_b": 3731
+        },
+        "scripts\\ai_trainer_multiagent.py": {
+            "functions": [
+                "run_multiagent_trainer"
+            ],
+            "size_b": 4661
+        },
+        "utils\\env_probe.py": {
+            "functions": [
+                "get_env_data"
+            ],
+            "size_b": 974
+        },
+        "utils\\train_zenith.py": {
+            "functions": [
+                "crawl_project"
+            ],
+            "size_b": 1852
+        },
+        "widgets\\copiloto.py": {
+            "functions": [
+                "_on_monitor_change",
+                "__init__",
+                "_loop",
+                "_update_preview",
+                "callback",
+                "_start_vision_thread",
+                "_toggle_vision",
+                "_process_task",
+                "_on_send",
+                "_drag_move",
+                "close",
+                "_start_voice_thread",
+                "_toggle_mic",
+                "_build_ui",
+                "_speak_async",
+                "_strip_markdown",
+                "_drag_start",
+                "_get_monitor_index",
+                "chat_append",
+                "_set_status",
+                "_do"
+            ],
+            "size_b": 19501
+        },
+        "_orunex_libs\\animation.py": {
+            "functions": [
+                "fade_in",
+                "fade_out"
+            ],
+            "size_b": 464
+        },
+        "_orunex_libs\\app_integrator.py": {
+            "functions": [
+                "hook_browser",
+                "integrate",
+                "normalize_app_name",
+                "find_app_window",
+                "hook_terminal",
+                "hook_office"
+            ],
+            "size_b": 7648
+        },
+        "_orunex_libs\\automation_daemon.py": {
+            "functions": [
+                "stop",
+                "add_task",
+                "_job_runner",
+                "_run_loop",
+                "start",
+                "__init__",
+                "load_and_schedule",
+                "get_daemon"
+            ],
+            "size_b": 3705
+        },
+        "_orunex_libs\\database.py": {
+            "functions": [
+                "clear_all_memories",
+                "save_memory",
+                "get_memories",
+                "init_db"
+            ],
+            "size_b": 1693
+        },
+        "_orunex_libs\\document_engine.py": {
+            "functions": [
+                "hex_to_rgb",
+                "create_excel",
+                "create_csv",
+                "create_pdf",
+                "clean_text",
+                "create_docx",
+                "apply_bg",
+                "create_html",
+                "create_pptx",
+                "create_md",
+                "add_image_from_query"
+            ],
+            "size_b": 14626
+        },
+        "_orunex_libs\\heartbeat.py": {
+            "functions": [
+                "set_callbacks",
+                "stop",
+                "_create_default_tasks_file",
+                "_safe_notify",
+                "_execute_task",
+                "_load_tasks",
+                "start",
+                "is_running",
+                "_heartbeat_loop"
+            ],
+            "size_b": 5303
+        },
+        "_orunex_libs\\languages.py": {
+            "functions": [],
+            "size_b": 18140
+        },
+        "_orunex_libs\\long_term_memory.py": {
+            "functions": [
+                "delete_memory_by_index",
+                "get_context_string",
+                "get_all_memories",
+                "save_memory",
+                "add_preference",
+                "load_memory",
+                "update_context"
+            ],
+            "size_b": 2349
+        },
+        "_orunex_libs\\maintenance.py": {
+            "functions": [
+                "rotate_logs",
+                "kernel_health_check"
+            ],
+            "size_b": 1334
+        },
+        "_orunex_libs\\memory_gc.py": {
+            "functions": [
+                "reset_session",
+                "get_context_for_prompt",
+                "add_turn",
+                "_compact_history",
+                "get_turn_count"
+            ],
+            "size_b": 3582
+        },
+        "_orunex_libs\\ollama_client.py": {
+            "functions": [
+                "call_ollama"
+            ],
+            "size_b": 2231
+        },
+        "_orunex_libs\\os_executor.py": {
+            "functions": [
+                "intercept_and_execute",
+                "take_screenshot",
+                "save_file",
+                "press_key",
+                "write_text",
+                "notify_progress",
+                "click_at",
+                "set_copiloto_context",
+                "run_async",
+                "open_browser",
+                "execute_shell"
+            ],
+            "size_b": 43299
+        },
+        "_orunex_libs\\permissions.py": {
+            "functions": [
+                "get_recent_logs",
+                "check_permission",
+                "log_entry",
+                "log_result",
+                "set_ui_confirm_callback"
+            ],
+            "size_b": 3942
+        },
+        "_orunex_libs\\self_evolver.py": {
+            "functions": [
+                "_apply_patch",
+                "run_evolution_background",
+                "_resolve_source_file",
+                "_log_evolution",
+                "_find_repeated_errors",
+                "_read_error_log",
+                "_generate_patch",
+                "_bg",
+                "_read_source_file",
+                "run_evolution_cycle"
+            ],
+            "size_b": 8808
+        },
+        "_orunex_libs\\semantic_search.py": {
+            "functions": [
+                "extract_text_from_file",
+                "index_directory",
+                "get_embedding",
+                "display_search"
+            ],
+            "size_b": 4154
+        },
+        "_orunex_libs\\simplex_bridge.py": {
+            "functions": [
+                "_send",
+                "send_file",
+                "__init__",
+                "start_daemon",
+                "find_link",
+                "_clean_simplex_text",
+                "_on_open",
+                "_on_message",
+                "_background_init",
+                "generate_qr_image",
+                "find_obj_recursive",
+                "_run_ws_forever",
+                "check_and_download_cli",
+                "send_notification",
+                "_auto_link_persistence",
+                "connect",
+                "_get_system_status",
+                "_async_task",
+                "_start_heartbeat",
+                "get_invite_link_ws",
+                "_on_error",
+                "get_bridge",
+                "disconnect",
+                "_send_text",
+                "is_linked",
+                "_on_close",
+                "_parse_remote_command",
+                "notify",
+                "load_config",
+                "send_screenshot",
+                "save_config",
+                "_next_corr",
+                "is_connected",
+                "init_bridge"
+            ],
+            "size_b": 31587
+        },
+        "_orunex_libs\\skills_registry.py": {
+            "functions": [
+                "get_skill"
+            ],
+            "size_b": 2089
+        },
+        "_orunex_libs\\stt_worker.py": {
+            "functions": [
+                "main"
+            ],
+            "size_b": 763
+        },
+        "_orunex_libs\\theme.py": {
+            "functions": [
+                "switch_theme"
+            ],
+            "size_b": 1264
+        },
+        "_orunex_libs\\web_search.py": {
+            "functions": [
+                "search_web"
+            ],
+            "size_b": 713
+        },
+        "_orunex_libs\\__init__.py": {
+            "functions": [],
+            "size_b": 551
+        }
+    },
+    "capabilities": [
+        "Voice Synthesis (Neural)",
+        "OS Execution (Precision Kernel)",
+        "PPTX/DOCX Generation",
+        "Hardware Monitoring",
+        "Simplex Bridge Integration",
+        "Neural Search (DuckDuckGo)"
+    ],
+    "environment": {
+        "os": "Windows",
+        "os_release": "10",
+        "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+        "cores": 15,
+        "total_ram_gb": 31.05,
+        "available_ram_gb": 11.09,
+        "python_version": "3.11.0",
+        "gpu_detected": "NVIDIA GeForce RTX 5060 Laptop GPU, 8151"
+    }
+}

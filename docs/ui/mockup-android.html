@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LlamaOS Agent — Android Light UI</title>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --soft: #f8f9fa;
+      --muted: #f2f4f7;
+      --border: #e6e9ee;
+      --border-strong: #d9dee6;
+      --text: #111318;
+      --text-dim: #667085;
+      --muted-text: #98a2b3;
+      --blue: #0668e1;
+      --blue-hover: #0059c7;
+      --blue-soft: #edf4ff;
+      --blue-border: #cfe2ff;
+      --red: #e15241;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      padding: 32px;
+      background: #eef1f5;
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Roboto, system-ui, sans-serif;
+    }
+    .phone {
+      width: 390px;
+      height: 844px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+      border: 1px solid var(--border-strong);
+      border-radius: 38px;
+      box-shadow: 0 24px 60px rgba(17, 19, 24, 0.16);
+    }
+    .status-bar {
+      height: 44px;
+      flex: 0 0 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      background: var(--surface);
+      color: var(--text-dim);
+      font-size: 11px;
+    }
+    .status-icons { display: flex; align-items: center; gap: 7px; }
+    .signal {
+      width: 14px;
+      height: 9px;
+      display: inline-block;
+      border-left: 2px solid var(--text-dim);
+      border-right: 2px solid var(--text-dim);
+      position: relative;
+    }
+    .signal::before {
+      content: "";
+      position: absolute;
+      inset: 2px 3px;
+      border-left: 2px solid var(--text-dim);
+      border-right: 2px solid var(--text-dim);
+    }
+    .battery {
+      width: 18px;
+      height: 9px;
+      border: 1.5px solid var(--text-dim);
+      border-radius: 2px;
+      position: relative;
+    }
+    .battery::after {
+      content: "";
+      position: absolute;
+      right: -4px;
+      top: 2px;
+      width: 2px;
+      height: 3px;
+      background: var(--text-dim);
+      border-radius: 1px;
+    }
+    .app-header {
+      padding: 14px 20px 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .app-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .app-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .app-mark {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .app-states {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .state {
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 9px;
+      border-radius: 7px;
+      background: var(--muted);
+      color: var(--text-dim);
+      font-size: 9px;
+      font-weight: 600;
+    }
+    .state.ready { background: var(--blue-soft); color: var(--blue); }
+    .content {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 16px 16px 0;
+    }
+    .empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-align: center;
+    }
+    .empty-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .empty-body {
+      max-width: 250px;
+      color: var(--text-dim);
+      font-size: 11px;
+      line-height: 1.55;
+    }
+    .composer-wrap { padding: 10px 0 18px; }
+    .composer {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 8px 7px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 26px;
+      box-shadow: 0 4px 14px rgba(17, 19, 24, 0.06);
+    }
+    .plus {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      background: var(--soft);
+      color: var(--text-dim);
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .prompt {
+      flex: 1;
+      color: var(--muted-text);
+      font-size: 12px;
+    }
+    .send {
+      width: 36px;
+      height: 36px;
+      flex: 0 0 36px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .send:hover { background: var(--blue-hover); }
+    .hint {
+      margin: 9px 8px 0;
+      color: var(--muted-text);
+      font-size: 9px;
+      text-align: center;
+    }
+    .caption {
+      color: #667085;
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="phone" role="img" aria-label="LlamaOS Agent Android interface mockup">
+    <div class="status-bar">
+      <span>9:41</span>
+      <span class="status-icons">
+        <span class="signal"></span>
+        <span>Wi-Fi</span>
+        <span class="battery"></span>
+      </span>
+    </div>
+
+    <header class="app-header">
+      <div class="app-title-row">
+        <span class="app-mark">L</span>
+        <h1 class="app-title">LlamaOS Agent</h1>
+      </div>
+      <div class="app-states">
+        <span class="state">● Bridge not paired</span>
+        <span class="state ready">● Idle</span>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="empty">
+        <div class="empty-title">No active task</div>
+        <div class="empty-body">
+          Pair the desktop bridge to send a task from this Android client.
+        </div>
+      </div>
+
+      <div class="composer-wrap">
+        <div class="composer">
+          <button class="plus" type="button" aria-label="Attach">+</button>
+          <div class="prompt">Type a task for Android...</div>
+          <button class="send" type="button" aria-label="Send">↑</button>
+        </div>
+        <div class="hint">Android is a separate client from the Orunex desktop window.</div>
+      </div>
+    </main>
+  </div>
+  <div class="caption">Standalone Android interface. No device state is simulated.</div>
+</body>
+</html>

@@ -17,9 +17,21 @@ if os.name == "nt":
 
 try:
     if sys.stdout is not None:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer,
+            encoding='utf-8',
+            errors='replace',
+            line_buffering=True,
+            write_through=True,
+        )
     if sys.stderr is not None:
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(
+            sys.stderr.buffer,
+            encoding='utf-8',
+            errors='replace',
+            line_buffering=True,
+            write_through=True,
+        )
 except:
     pass
 
@@ -36,7 +48,7 @@ from tkinter import messagebox, simpledialog
 
 # --- NUCLEAR LAYOUT GUARD (Global) ---
 LAYOUT = "ORUNEX_GUARD"
-# LOCAL CORE — No telemetry, no external servers. All inference is local GGUF via llama-cpp-python.
+# INFERENCE CORE — Meta Model API (configured through META_API_KEY).
 
 # --- IMPORTACIONES ---
 try:
@@ -170,17 +182,15 @@ def fit_window(window, width, height, min_width=360, min_height=320):
 
 
 def _brain_available():
-    """Cheap check for the local model without loading it into memory."""
+    """Cheap check for the configured inference backend."""
     try:
-        import importlib.util
         from _orunex_libs import ollama_client
 
+        if hasattr(ollama_client, "is_available"):
+            return bool(ollama_client.is_available())
+
         model_path = getattr(ollama_client, "_MODEL_PATH", "")
-        return bool(
-            model_path
-            and os.path.exists(model_path)
-            and importlib.util.find_spec("llama_cpp") is not None
-        )
+        return bool(model_path and os.path.exists(model_path))
     except Exception:
         return False
 
@@ -288,8 +298,15 @@ class OrunexApp(ctk.CTk):
         self._screen_glow = None
         self._live_vision_active = False
         self._live_vision_session = None
+        self._live_audio_session = None
+        self._live_speaker = None
+        self._live_transcript_queue = []
+        self._live_conversation_until = 0.0
+        self._live_recent_transcripts = None
         self._last_live_vision_frame = None
         self._last_live_toggle = 0.0
+        self._live_audio_watch_after = None
+        self._command_context = {}
         self._shutting_down = False
         self._thinking_visible = False
         self._thinking_after_id = None
@@ -340,6 +357,7 @@ class OrunexApp(ctk.CTk):
         self.chats = chat_store.load_chats()
         self.current_chat = None
         self.current_chat_id = None
+        self._initial_chat_loaded = False
         self._send_screenshot_var = ctk.StringVar(
             value="1" if self.config.get("send_screenshot", True) else "0"
         )
@@ -501,6 +519,12 @@ class OrunexApp(ctk.CTk):
         except Exception:
             pass
 
+    def _stop_task_glow(self, wait=False):
+        """The blue contour belongs to Live mode, not to individual tasks."""
+        if getattr(self, "_live_vision_active", False):
+            return
+        self.stop_screen_glow(wait=wait)
+
     def _on_close(self):
         """Stop animated resources before Tk tears down its interpreter."""
         if getattr(self, "_shutting_down", False):
@@ -528,6 +552,18 @@ class OrunexApp(ctk.CTk):
             session = getattr(self, "_live_vision_session", None)
             if session is not None:
                 session.stop(wait=False)
+        except Exception:
+            pass
+        try:
+            audio = getattr(self, "_live_audio_session", None)
+            if audio is not None:
+                audio.stop(wait=False)
+        except Exception:
+            pass
+        try:
+            speaker = getattr(self, "_live_speaker", None)
+            if speaker is not None:
+                speaker.stop()
         except Exception:
             pass
         try:
@@ -584,7 +620,10 @@ class OrunexApp(ctk.CTk):
         self._set_view_title("workspace")
         self.workspace_view.pack(fill="both", expand=True)
         self._style_nav_buttons()
-        self._open_initial_chat()
+        # Restore the saved conversation only after the splash releases the
+        # window.  Building it while the window is withdrawn leaves the
+        # scrollable chat content unmapped on Windows, producing an empty
+        # conversation card even though messages are loaded.
 
     def _build_header(self):
         """Slim top bar for the content area. Navigation lives in the sidebar."""
@@ -1231,7 +1270,7 @@ class OrunexApp(ctk.CTk):
             self.start_live_vision()
 
     def start_live_vision(self):
-        """Arm screen observation; the Meta AI brain can be attached later."""
+        """Start the combined Live mode: screen observation plus microphone."""
         if self._live_vision_active:
             return
         session = self._ensure_live_vision_session()
@@ -1240,33 +1279,531 @@ class OrunexApp(ctk.CTk):
             self.live_vision_btn.set_active(True)
         except Exception:
             pass
-        # If the Meta transport has already been wired, attach it now.  Until
-        # then the loop observes and diffs frames locally without a model.
+        # The capture loop only diffs frames locally.  Vision analysis runs
+        # on demand when the user asks about the screen: attaching the model
+        # to every frame change burned an API call on each video frame and
+        # still never answered the actual question.
+        session.start()
+        self._start_live_audio()
+        # Open the audio device before the first answer; pygame's first init
+        # was adding a noticeable pause to every new Live session.
         try:
-            provider = MetaVisionProvider()
-            if provider.can_analyze:
-                self.connect_live_vision_brain(provider)
+            speaker = self._ensure_live_speaker()
+            speaker.prepare_async()
+            # Pre-render the short replies Live gives constantly.  Later
+            # plays are local file reads, so the answer starts instantly.
+            speaker.warm(
+                [
+                    "Hola, ¿en qué te ayudo?",
+                    "Te escucho. ¿En qué te ayudo?",
+                    "Hi, how can I help?",
+                    "De nada.",
+                    "Abriendo YouTube en Chrome.",
+                    "Abriendo YouTube en tu navegador.",
+                    "Abriendo Google en Chrome.",
+                    "Abriendo Chrome.",
+                    "Opening YouTube in Chrome.",
+                    "¿Qué quieres que abra? Dime el sitio o la aplicación.",
+                ]
+            )
         except Exception:
             pass
-        session.start()
+        self.start_screen_glow()
+        self._schedule_live_audio_watch()
         if not self.is_processing:
-            self._show_activity_line(
-                f"Live vision on. {self._live_vision_brain_note()}", "info"
+            # The contour is the Live indicator.  Keep this line as a calm
+            # state label instead of narrating every microphone event.
+            self._show_activity_line("Live", "info")
+
+    def _schedule_live_audio_watch(self):
+        """Check occasionally that the microphone thread is still alive."""
+        previous = getattr(self, "_live_audio_watch_after", None)
+        if previous is not None:
+            try:
+                self.after_cancel(previous)
+            except Exception:
+                pass
+        try:
+            self._live_audio_watch_after = self.after(
+                1800, self._watch_live_audio
             )
+        except Exception:
+            self._live_audio_watch_after = None
+
+    def _watch_live_audio(self):
+        self._live_audio_watch_after = None
+        if getattr(self, "_shutting_down", False) or not self._live_vision_active:
+            return
+        audio = getattr(self, "_live_audio_session", None)
+        if audio is None or not audio.active:
+            self._start_live_audio()
+        self._schedule_live_audio_watch()
 
     def stop_live_vision(self):
-        """Disarm observation and stop the capture thread."""
+        """Disarm screen observation, microphone listening and queued voice."""
+        was_active = bool(getattr(self, "_live_vision_active", False))
         self._live_vision_active = False
+        self._live_transcript_queue.clear()
+        previous = getattr(self, "_live_audio_watch_after", None)
+        if previous is not None:
+            try:
+                self.after_cancel(previous)
+            except Exception:
+                pass
+            self._live_audio_watch_after = None
         try:
             self.live_vision_btn.set_active(False)
         except Exception:
             pass
+        # Signal the overlay first.  Its animation thread hides the layered
+        # window on the next frame, so the contour goes away without waiting
+        # for voice or microphone teardown.
+        try:
+            self.stop_screen_glow(wait=False)
+        except Exception:
+            pass
+        # Invalidate and silence the neural voice before any cleanup that could
+        # block.  The speaker worker is allowed to finish tearing down in the
+        # background so Tk can repaint the chat and hide the contour at once.
+        speaker = getattr(self, "_live_speaker", None)
+        if speaker is not None:
+            try:
+                speaker.stop(wait=False)
+            except Exception:
+                pass
+        audio = getattr(self, "_live_audio_session", None)
+        if audio is not None:
+            try:
+                audio.stop()
+            except Exception:
+                pass
         session = getattr(self, "_live_vision_session", None)
         if session is not None:
             try:
                 session.stop()
             except Exception:
                 pass
+        if was_active and not self.is_processing and not getattr(
+            self, "_shutting_down", False
+        ):
+            try:
+                self._show_activity_line("At your service", "info")
+            except Exception:
+                pass
+        if was_active and os.environ.get("ORUNEX_LIVE_DEBUG", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            print("[LIVE] stopped; microphone and speech halted, contour off")
+
+    def _start_live_audio(self):
+        """Start microphone capture for the Live button, if voice is enabled."""
+        if not self.config.get("voice_enabled", True):
+            return
+        try:
+            from _orunex_libs.live_audio import LiveAudioSession
+
+            audio = getattr(self, "_live_audio_session", None)
+            if audio is None:
+                audio = LiveAudioSession(
+                    on_transcript=self._on_live_transcript,
+                    on_status=self._on_live_audio_status,
+                )
+                self._live_audio_session = audio
+            if not audio.active:
+                audio.start()
+        except Exception as exc:
+            self._show_activity_line(
+                f"Live microphone unavailable: {exc}", "error"
+            )
+
+    def _ensure_live_speaker(self):
+        speaker = getattr(self, "_live_speaker", None)
+        if speaker is None:
+            from _orunex_libs.live_tts import LiveSpeaker
+
+            speaker = LiveSpeaker(on_status=self._on_live_speaker_status)
+            self._live_speaker = speaker
+        return speaker
+
+    def _speak_live_response(self, text):
+        """Speak one completed response while Live is active."""
+        if not self._live_vision_active or not self.config.get(
+            "voice_enabled", True
+        ):
+            return False
+        if getattr(self, "_shutting_down", False):
+            return False
+        try:
+            speaker = self._ensure_live_speaker()
+            audio = getattr(self, "_live_audio_session", None)
+            if audio is not None:
+                audio.suspend()
+
+            def done():
+                if not self._live_vision_active:
+                    return
+
+                def resume_microphone():
+                    if not self._live_vision_active:
+                        return
+                    # A newer answer may already be speaking.  In that case
+                    # its own done callback will re-arm the microphone.
+                    try:
+                        if speaker.speaking:
+                            return
+                    except Exception:
+                        pass
+                    if audio is not None:
+                        audio.resume()
+
+                # Room echo and the last SDL buffer can outlive get_busy().
+                # Keep the mic muted briefly so the assistant never hears its
+                # own voice and turns it into a new task.  This is intentionally
+                # short: a long guard was another source of perceived lag.
+                try:
+                    self.after(300, resume_microphone)
+                except Exception:
+                    resume_microphone()
+
+            started = speaker.speak(text, on_done=done)
+            if started:
+                return True
+            if audio is not None:
+                audio.resume()
+            return False
+        except Exception as exc:
+            audio = getattr(self, "_live_audio_session", None)
+            if audio is not None:
+                audio.resume()
+            self._show_activity_line(f"Voice output unavailable: {exc}", "error")
+            return False
+
+    def _on_live_speaker_status(self, message, level="info"):
+        if getattr(self, "_shutting_down", False):
+            return
+        try:
+            self.after(
+                0,
+                lambda m=message, l=level: self._apply_live_audio_status(m, l),
+            )
+        except Exception:
+            pass
+
+    def _on_live_audio_status(self, message, level="info"):
+        """Marshal microphone status messages back onto the Tk thread."""
+        if getattr(self, "_shutting_down", False):
+            return
+        try:
+            self.after(
+                0,
+                lambda m=message, l=level: self._apply_live_audio_status(m, l),
+            )
+        except Exception:
+            pass
+
+    def _apply_live_audio_status(self, message, level="info"):
+        if getattr(self, "_shutting_down", False):
+            return
+        # Live must feel like a conversation, not a terminal.  Hearing,
+        # transcribing, no-speech and listening updates stay out of the UI.
+        # Only actionable failures (no microphone, bad key, ASR down) surface.
+        if level in ("error", "warning", "warn"):
+            self._show_activity_line(message, "error" if level == "error" else level)
+
+    def _on_live_transcript(self, text):
+        """Receive a microphone transcript from the audio worker thread."""
+        text = " ".join(str(text or "").split()).strip()
+        if not text or getattr(self, "_shutting_down", False):
+            return
+        try:
+            self.after(0, lambda t=text: self._queue_live_transcript(t))
+        except Exception:
+            pass
+
+    def _strip_live_wake_word(self, text):
+        """Remove a leading spoken wake word before routing a transcript."""
+        import re
+
+        value = str(text or "").strip()
+        return re.sub(
+            r"(?i)^\s*(?:(?:oye|hey|hola)\s*,?\s*)?orunex\b[\s,.:;!?\-]*",
+            "",
+            value,
+        ).strip()
+
+    _LIVE_GREETINGS = {
+        "hola": "Hola, ¿en qué te ayudo?",
+        "hello": "Hi, how can I help?",
+        "hey": "Hi, how can I help?",
+        "buenas": "Hola, ¿en qué te ayudo?",
+        "buenos dias": "Buenos días. ¿En qué te ayudo?",
+        "buenas tardes": "Buenas tardes. ¿En qué te ayudo?",
+        "buenas noches": "Buenas noches. ¿En qué te ayudo?",
+        "que tal": "Muy bien. ¿En qué te ayudo?",
+        "como estas": "Muy bien, gracias. ¿En qué te ayudo?",
+        "how are you": "I'm doing well. How can I help?",
+        "gracias": "De nada.",
+        "muchas gracias": "De nada.",
+        "thank you": "You're welcome.",
+        "thanks": "You're welcome.",
+    }
+
+    def _live_greeting_response(self, text):
+        """Instant local reply for greetings and wake-only turns.
+
+        These must never wait for a model round-trip: in Live mode a simple
+        "Hola" expects an immediate "Hola, ¿en qué te ayudo?" back, the same
+        way Gemini Live answers.  Returns ``None`` for real requests.
+        """
+        import re
+        import unicodedata
+
+        value = str(text or "").strip()
+        if not value:
+            return None
+        folded = unicodedata.normalize("NFKD", value)
+        folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+        folded = folded.lower()
+        folded = re.sub(
+            r"^\s*(?:(?:oye|hey|hola)\s*,?\s*)?orunex\b[\s,.:;!?-]*",
+            "",
+            folded,
+        )
+        folded = re.sub(r"[^\w\s]", " ", folded)
+        folded = re.sub(r"\s+", " ", folded).strip()
+        if not folded:
+            # Wake word on its own: "Orunex" / "Hola Orunex".
+            return "Te escucho. ¿En qué te ayudo?"
+        return self._LIVE_GREETINGS.get(folded)
+
+    def _is_screen_question(self, text):
+        """True for "¿qué ves en mi pantalla?" style questions, ES or EN.
+
+        These are read-only questions about the screen.  They must go to the
+        vision path, never to the OS agent: sending one to Cerebro made it
+        hallucinate executor tags such as a fake project folder and a bogus
+        URL, which the executor then tried to open in Chrome.
+        """
+        import re
+        import unicodedata
+
+        folded = unicodedata.normalize("NFKD", str(text or ""))
+        folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+        folded = re.sub(r"\s+", " ", folded.lower()).strip()
+        if not folded:
+            return False
+        patterns = (
+            r"\bque ves\b",
+            r"\bque se ve\b",
+            r"\bque hay en (mi|la|esta|tu) pantalla\b",
+            r"\bdescribe(me)? (la|mi|esta|tu)? ?pantalla\b",
+            r"\bmira (mi|la|esta) pantalla\b",
+            r"\bwhat (do|can) you see\b",
+            r"\bwhat'?s on (my|the|your) screen\b",
+            r"\bwhat is on (my|the|your) screen\b",
+            r"\bdescribe (my|the) screen\b",
+            r"\blook at my screen\b",
+            r"\bsee (on|in) my (screen|browser)\b",
+        )
+        return any(re.search(p, folded) for p in patterns)
+
+    def _capture_screen_frame(self):
+        """Fresh full-screen capture for an on-demand vision answer."""
+        try:
+            import mss
+            from PIL import Image
+
+            from _orunex_libs.live_vision import LiveVisionFrame
+
+            with mss.mss() as sct:
+                if len(sct.monitors) <= 1:
+                    return None
+                shot = sct.grab(sct.monitors[1])
+                image = Image.frombytes(
+                    "RGB", shot.size, shot.bgra, "raw", "BGRX"
+                )
+            # A downscaled frame uploads and analyzes much faster, and the
+            # model still reads titles and dialogs at this size.
+            if image.width > 1280:
+                height = int(image.height * 1280 / image.width)
+                image = image.resize((1280, height))
+            return LiveVisionFrame(
+                image=image, captured_at=time.time(), monitor=1
+            )
+        except Exception as exc:
+            print(f"[VISION] screen capture failed: {exc}")
+            return None
+
+    def _describe_screen(self, task):
+        """Answer a screen question from a fresh capture. Never raises.
+
+        Technical details go to the console only; the chat and the voice
+        always get a short, human answer.
+        """
+        spanish = not re.search(
+            r"\b(what|screen|see|look|describe)\b", str(task or ""), re.I
+        )
+        unavailable = (
+            "Ahora mismo no puedo ver tu pantalla. Inténtalo de nuevo en unos segundos."
+            if spanish
+            else "I can't see your screen right now. Try again in a few seconds."
+        )
+        try:
+            from _orunex_libs.live_vision import MetaVisionProvider
+
+            provider = MetaVisionProvider()
+            if not provider.can_analyze:
+                print("[VISION] screen question: provider not configured")
+                return unavailable
+            provider.timeout = 30.0
+            frame = self._capture_screen_frame()
+            if frame is None:
+                return unavailable
+            if spanish:
+                prompt = (
+                    "Describe en español, en 2 o 3 frases cortas y sin listas, "
+                    "qué se ve en esta captura de pantalla: la aplicación o "
+                    "sitio principal, el contenido visible (títulos, videos, "
+                    "textos) y cualquier ventana de error. Si se ve la "
+                    "ventana de Orunex, ignórala y describe el resto de la "
+                    "pantalla. No inventes nada que no sea visible."
+                )
+            else:
+                prompt = (
+                    "Describe in English, in 2 or 3 short sentences with no "
+                    "lists, what is visible in this screenshot: the main app "
+                    "or site, the visible content (titles, videos, text) and "
+                    "any error dialog. If the Orunex window is visible, "
+                    "ignore it and describe the rest of the screen. Do not "
+                    "invent anything that is not visible."
+                )
+            started = time.monotonic()
+            answer = str(provider.analyze(frame, prompt) or "").strip()
+            print(
+                f"[VISION] screen answered in {time.monotonic() - started:.1f}s "
+                f"chars={len(answer)}"
+            )
+            answer = re.sub(r"\s+", " ", answer).strip()
+            if not answer:
+                return unavailable
+            if len(answer) > 500:
+                cut = answer[:500]
+                end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+                answer = cut[: end + 1] if end >= 200 else cut.rstrip() + "…"
+            return answer
+        except Exception as exc:
+            print(f"[VISION] screen question failed: {exc}")
+            return unavailable
+
+    def _voice_transcript_is_actionable(self, text):
+        """Reject media/background chatter before it reaches the agent.
+
+        Always-listening mode inevitably hears a video, a call, or the tail of
+        Orunex's own voice.  Running every one of those strings through the OS
+        agent caused ghost clicks such as the old \"Profile-Handler\" Chrome
+        automation.  Direct desktop commands work without a wake word; a
+        free-form question or task must include \"Orunex\" so a film or a
+        YouTube video cannot silently take over the desktop.
+        """
+        import re
+        import unicodedata
+
+        value = str(text or "").strip()
+        if not value:
+            return False
+        stripped = self._strip_live_wake_word(value)
+        if not stripped:
+            # Wake word on its own ("Orunex", "Hola Orunex") is the user
+            # calling the assistant: answer immediately, do not stay silent.
+            return bool(re.search(r"\borunex\b", value, re.IGNORECASE))
+
+        folded = unicodedata.normalize("NFKD", stripped)
+        folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+        folded = re.sub(r"\s+", " ", folded.lower()).strip()
+        folded = re.sub(r"[^\w\s]", " ", folded)
+        folded = re.sub(r"\s+", " ", folded).strip()
+        if not folded:
+            return False
+
+        try:
+            from _orunex_libs.intent_router import parse_command
+
+            context = getattr(self, "_command_context", {})
+            if parse_command(stripped, context) or parse_command(value, context):
+                return True
+        except Exception:
+            pass
+
+        # A greeting is a conversation opener, not a task.  Answering "Hola"
+        # instantly is what makes Live feel alive; it can never launch or
+        # automate anything, so the ghost-action risk stays zero.
+        if folded in self._LIVE_GREETINGS:
+            return True
+
+        # Screen questions are read-only and unmistakably addressed to the
+        # assistant while Live is watching the screen.
+        if self._is_screen_question(stripped) or self._is_screen_question(value):
+            return True
+
+        # Conversation window: once the user has addressed Orunex, follow-ups
+        # for a short while do not need the wake word again (Gemini Live
+        # behaves this way inside a session).  Outside the window, free-form
+        # speech still needs "Orunex" so TV dialogue cannot become a task.
+        if time.monotonic() < float(
+            self.__dict__.get("_live_conversation_until", 0.0) or 0.0
+        ):
+            return True
+
+        # Free-form speech needs an explicit wake word.  This is the important
+        # barrier against TV dialogue and YouTube captions becoming tasks.
+        if stripped == value and not re.search(r"\borunex\b", folded):
+            return False
+        return bool(folded)
+
+    def _queue_live_transcript(self, text):
+        if not self._live_vision_active or getattr(self, "_shutting_down", False):
+            return
+        if not self._voice_transcript_is_actionable(text):
+            # Television, video, music lyrics and other voices disappear
+            # silently.  They must not create a status line or a chat bubble.
+            return
+        text = self._strip_live_wake_word(text) or text
+        recent = getattr(self, "_live_recent_transcripts", None)
+        if recent is None:
+            from collections import deque
+
+            recent = deque(maxlen=4)
+            self._live_recent_transcripts = recent
+        now = time.monotonic()
+        if recent and recent[-1][0] == text.lower() and now - recent[-1][1] < 1.2:
+            return
+        recent.append((text.lower(), now))
+        # An accepted turn opens the short conversation window used above.
+        self._live_conversation_until = now + 30.0
+        self._live_transcript_queue.append(text)
+        self._drain_live_transcripts()
+
+    def _drain_live_transcripts(self):
+        """Send one live utterance at a time, never interrupting a running task."""
+        if getattr(self, "_shutting_down", False) or not self._live_vision_active:
+            return
+        if self.is_processing:
+            self.after(200, self._drain_live_transcripts)
+            return
+        if not self._live_transcript_queue:
+            return
+        text = self._live_transcript_queue.pop(0)
+        try:
+            self.input_entry.delete(0, "end")
+            self.input_entry.insert(0, text)
+            self.send_task()
+        except Exception as exc:
+            self._show_activity_line(f"Live voice error: {exc}", "error")
+        if self._live_transcript_queue:
+            self.after(200, self._drain_live_transcripts)
 
     def _on_live_vision_status(self, message, level="info"):
         """Receive worker-thread status without touching Tk off-thread."""
@@ -1728,7 +2265,16 @@ class OrunexApp(ctk.CTk):
 
     # ── Saved conversations ─────────────────────────────────────────────
     def _open_initial_chat(self):
-        """Restore the most recent saved chat, or start an empty draft."""
+        """Restore the most recent saved chat, or start an empty draft.
+
+        This runs after the main window is mapped.  Loading and scrolling the
+        conversation while the splash has the window withdrawn can leave the
+        CTkScrollableFrame's content window unmapped, which shows as a blank
+        chat even though the messages are present.
+        """
+        if getattr(self, "_initial_chat_loaded", False):
+            return
+        self._initial_chat_loaded = True
         if getattr(self, "chats", None):
             latest = max(
                 self.chats,
@@ -3617,6 +4163,10 @@ class OrunexApp(ctk.CTk):
             self.lift()
             self.focus_force()
             self.after(120, self._restore_idle_placeholder)
+            # The chat is intentionally restored only once the window is
+            # mapped; see _open_initial_chat for the Windows scroll-frame bug
+            # this avoids.
+            self.after(180, self._open_initial_chat)
             self.after(350, lambda: self.attributes("-topmost", False))
         except Exception:
             try:
@@ -3825,6 +4375,58 @@ class OrunexApp(ctk.CTk):
             except Exception:
                 pass
 
+    def _clean_visible_text(self, text):
+        """Strip internal agent/executor tags from a user-facing bubble."""
+        import re
+
+        value = str(text or "")
+        # Known machine tags, including [OPEN_URL: ...], [CMD: ...], [OK].
+        value = re.sub(
+            r"\[[A-Z][A-Z0-9_ -]{0,48}(?::[^\]]*)?\]", "", value
+        )
+        value = re.sub(
+            r"\[(?:Cerebro|ORUNEX|Orunex|CEREBRO|Agent|SYSTEM|SISTEMA)[^\]]*\]",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        )
+        # Executor status headings and success/error wrappers.
+        value = re.sub(
+            r"(?m)^\s*\[\s*SISTEMA ORUNEX:[^\]]*\]\s*$", "", value
+        )
+        value = re.sub(r"(?m)^\s*\[\+\][^\n]*$", "", value)
+        value = re.sub(r"(?m)^\s*\[!\][^\n]*$", "", value)
+        # Any remaining leading labels such as [Kernel-Nav] or [GUI].
+        value = re.sub(r"(?m)^\s*\[[^\]\n]{1,60}\]\s*", "", value)
+
+        # Executor/live-status chatter must never look like an answer.  Older
+        # chats saved these lines before the sanitizer existed; filtering here
+        # also cleans them when a conversation is re-opened.
+        internal_prefixes = (
+            "intentando superar selector",
+            "clic de redundancia",
+            "click de redundancia",
+            "chrome lanzado",
+            "edge lanzado",
+            "firefox lanzado",
+            "navegador lanzado",
+            "live vision:",
+            "live microphone:",
+            "live heard:",
+            "task completed successfully.",
+        )
+        kept_lines = []
+        for line in value.splitlines():
+            normalized = line.strip().lower()
+            if any(normalized.startswith(prefix) for prefix in internal_prefixes):
+                continue
+            kept_lines.append(line)
+        value = "\n".join(kept_lines)
+
+        value = re.sub(r"[ \t]{2,}", " ", value)
+        value = re.sub(r"\n{3,}", "\n\n", value)
+        return value.strip()
+
     def append_history(
         self, text, tag="info", color=None, is_user=False, persist=True
     ):
@@ -3865,6 +4467,12 @@ class OrunexApp(ctk.CTk):
         clean_text = re.sub(
             r'\[ARTIFACT:\s*.*?\]', '', clean_text, flags=re.DOTALL
         ).strip()
+
+        is_user = bool(is_user) or tag == "user"
+        if not is_user:
+            clean_text = self._clean_visible_text(clean_text)
+            # A bubble made only of internal status lines adds noise; do not
+            # replace it with a fake \"Action completed\" message.
         if not clean_text and not widgets and not artifact_specs:
             return
 
@@ -3872,7 +4480,6 @@ class OrunexApp(ctk.CTk):
         if getattr(self, "empty_state", None) is not None:
             self._dismiss_empty_state()
 
-        is_user = bool(is_user) or tag == "user"
         is_system = tag in ["sys", "info", "error", "success", "warning"]
         if persist:
             # Keep renderable tags in the saved copy so artifact cards survive
@@ -4394,14 +5001,15 @@ except:
         if self.execution_status == "RUNNING":
             self.execution_status = "PAUSED"
             self.execution_flag.clear()
-            self.stop_screen_glow()
+            self._stop_task_glow()
             self.pause_btn.configure(text="Resume")
             self._set_stream_status("Paused", "gray")
             self.write_real_time("Execution paused. The agent is waiting.", "warn")
         elif self.execution_status == "PAUSED":
             self.execution_status = "RUNNING"
             self.execution_flag.set()
-            self.start_screen_glow()
+            if self._live_vision_active:
+                self.start_screen_glow()
             self.pause_btn.configure(text="Pause")
             self._set_stream_status("Running", "blue")
             self.write_real_time("Execution resumed.", "info")
@@ -4413,7 +5021,7 @@ except:
 
         self.execution_status = "CANCELLED"
         self.execution_flag.set()
-        self.stop_screen_glow()
+        self._stop_task_glow()
         self.update_action_buttons(show=False)
         self.is_processing = False
         self._set_stream_status("Stopped", "red")
@@ -4448,7 +5056,7 @@ except:
         self.is_processing = False
         if self.execution_status != "CANCELLED":
             self.execution_status = "IDLE"
-        self.stop_screen_glow()
+        self._stop_task_glow()
         self.update_action_buttons(show=False)
 
     def _complete_artifact_task(self, artifact):
@@ -4532,6 +5140,61 @@ except:
         )
         self._finish_local_task()
 
+    def _detect_direct_command(self, task):
+        """Return a high-confidence local command before the LLM sees it.
+
+        This covers short desktop intents only (open a site/browser/app).  It
+        is the zero-latency semantic layer: it recognises Spanish/English
+        variants, preserves the requested browser, and refuses ambiguous
+        commands such as a bare "abre" instead of letting a model guess.
+        """
+        try:
+            from _orunex_libs.intent_router import parse_command
+
+            return parse_command(task, getattr(self, "_command_context", {}))
+        except Exception:
+            return None
+
+    def _remember_direct_command(self, intent, ok=True):
+        if not ok:
+            return
+        context = {
+            "last_kind": intent.kind,
+            "last_app": intent.app,
+            "language": getattr(self, "_command_language", "es"),
+        }
+        if intent.kind == "open_url":
+            context.update(
+                {
+                    "last_url": intent.url,
+                    "last_label": intent.label,
+                    "last_browser": intent.browser,
+                }
+            )
+        self._command_context = context
+
+    def _complete_direct_command(self, message, ok=True, speak=True):
+        self._last_task_error = not ok
+        # Live is voice-first: start the spoken reply before painting the
+        # text bubble, so synthesis is already running while the UI renders.
+        if speak and self._live_vision_active:
+            self._speak_live_response(message)
+            speak = False
+        self.append_history(
+            message,
+            tag="Cerebro",
+            color=AGENTS_INFO["Cerebro"]["color"],
+        )
+        self.write_real_time(message, "success" if ok else "error")
+        self._show_activity_line(
+            "Live" if self._live_vision_active else "Ask Orunex anything or describe a task.",
+            "info",
+        )
+        self._set_stream_status("Ready" if ok else "Needs attention", "blue" if ok else "red")
+        if speak:
+            self._speak_live_response(message)
+        self._finish_local_task()
+
     def send_task(self):
         task = self.input_entry.get().strip()
         if not task:
@@ -4557,11 +5220,140 @@ except:
             # before work begins.
             self._show_vscode_connecting(2.4)
 
-        # V50.0: Start screen glow to signal Orunex is active
-        self.after(0, self.start_screen_glow)
+        # The blue contour is the Live-mode indicator.  It must not appear
+        # merely because a typed task is running while Live is off.
+        if self._live_vision_active:
+            self.after(0, self.start_screen_glow)
 
         def task_thread():
             nonlocal task
+
+            # ── INSTANT GREETING (zero network latency) ───────────────────
+            # "Hola", "Orunex" or "gracias" get a local, pre-cached spoken
+            # reply.  Sending them to a model made Live feel dead.
+            greeting = self._live_greeting_response(task)
+            if greeting is not None:
+                self.after(
+                    0,
+                    lambda m=greeting: self._complete_direct_command(m, True),
+                )
+                return
+
+            # ── SCREEN QUESTION (vision, never the OS executor) ───────────
+            # "¿Qué ves en mi pantalla?" is answered from a fresh capture.
+            # Routing it to the reasoning agent made it invent executor
+            # tags, show technical errors and poke Chrome instead.
+            if self._is_screen_question(task):
+                answer = self._describe_screen(task)
+                self.after(
+                    0,
+                    lambda m=answer: self._complete_direct_command(m, True),
+                )
+                return
+
+            # ── LOCAL SEMANTIC ROUTER (zero network latency) ──────────────
+            # Short desktop commands are understood deterministically.  In
+            # particular, a bare "abre" asks for clarification instead of
+            # guessing Word, and "abre YouTube en Chrome" receives the real
+            # YouTube URL on Chrome's command line (never a Bing search).
+            command = self._detect_direct_command(task)
+            if command is not None:
+                if command.kind == "clarify":
+                    self.after(
+                        0,
+                        lambda m=command.message: self._complete_direct_command(
+                            m, True
+                        ),
+                    )
+                    return
+
+                # Start the natural voice before the desktop action finishes.
+                # Chrome can take a few hundred milliseconds to come forward;
+                # the user should hear "Abriendo YouTube en Chrome" as soon as
+                # the command is understood, not after every window settles.
+                preview = ""
+                if command.kind == "open_url":
+                    preview = command.message
+                elif command.kind == "open_app" and command.label:
+                    preview = f"Abriendo {command.label}."
+                pre_spoken = False
+                if preview and self._live_vision_active:
+                    try:
+                        self.after(
+                            0,
+                            lambda m=preview: self._speak_live_response(m),
+                        )
+                        pre_spoken = True
+                    except Exception:
+                        pre_spoken = False
+
+                ok = False
+                message = "No pude completar esa acción. Intenta de nuevo."
+                if command.kind == "open_url":
+                    try:
+                        from _orunex_libs.os_executor import open_url
+
+                        result = str(open_url(command.url, command.browser))
+                    except Exception as exc:
+                        result = f"[ERR] {exc}"
+                    if result.startswith("[OK]"):
+                        ok = True
+                        message = command.message
+                    elif result.startswith("[WARN]"):
+                        ok = True
+                        if command.browser:
+                            from _orunex_libs.intent_router import BROWSER_LABELS
+
+                            browser_name = BROWSER_LABELS.get(
+                                command.browser, command.browser.title()
+                            )
+                            message = (
+                                f"No encontré {browser_name}; abrí "
+                                f"{command.label} en tu navegador predeterminado."
+                            )
+                        else:
+                            message = command.message
+                    else:
+                        message = f"No pude abrir {command.label}. Intenta de nuevo."
+                elif command.kind == "open_app":
+                    try:
+                        if command.app == "browser":
+                            from _orunex_libs.os_executor import open_url
+
+                            result = str(open_url("https://www.google.com"))
+                        elif command.app in {
+                            "chrome", "edge", "firefox", "brave", "opera", "vivaldi"
+                        }:
+                            from _orunex_libs.os_executor import open_url
+
+                            result = str(open_url("https://www.google.com", command.app))
+                        else:
+                            from _orunex_libs.os_executor import smart_launch
+
+                            result = str(smart_launch(command.app))
+                    except Exception as exc:
+                        result = f"[ERR] {exc}"
+                    if result.startswith("[OK]"):
+                        ok = True
+                        message = f"Abriendo {command.label}."
+                    elif result.startswith("[WARN]"):
+                        message = f"No encontré {command.label} instalado."
+                    else:
+                        message = f"No pude abrir {command.label}. Intenta de nuevo."
+
+                if ok:
+                    self._command_language = "es" if any(
+                        token in str(task).lower()
+                        for token in ("abre", "abrir", "por favor", "chrome", "youtube")
+                    ) else "en"
+                    self._remember_direct_command(command, ok=True)
+                self.after(
+                    0,
+                    lambda m=message, good=ok, said=pre_spoken: self._complete_direct_command(
+                        m, good, speak=not (said and good)
+                    ),
+                )
+                return
 
             # ── DETERMINISTIC ARTIFACT PATH ───────────────────────────────
             # Explicit file requests work even when the local model is not
@@ -4642,7 +5434,7 @@ except:
             _fast_triggers = ["hola", "gracias", "ok", "listo", "bien", "hello",
                               "quien eres", "que eres", "como te llamas"]
             if _task_lower in _fast_triggers or len(_task_lower) < 20 and not any(
-                k in _task_lower for k in ["crea", "haz", "genera", "abre", "busca",
+                k in _task_lower for k in ["crea", "haz", "genera", "abre", "abrir", "open", "busca",
                 "make", "cmd", "run", "video", "excel", "pdf", "ppt"]
             ):
                 # Skip all routing overhead — go straight to cerebro fast path
@@ -4650,6 +5442,12 @@ except:
                 _fast_result = _cerebro.run(task, self.user_name, agent_mode="natural")
                 _fast_result = _fast_result.replace("[Cerebro]", "").replace("[Orunex]", "").replace("[CEREBRO]", "").strip()
                 self.is_processing = True
+                # Voice-first in Live: queue the spoken reply ahead of the
+                # text bubble so the two feel simultaneous.
+                self.after(
+                    0,
+                    lambda r=_fast_result: self._speak_live_response(r),
+                )
                 self.after(0, lambda r=_fast_result: self.append_history(r, tag="Cerebro", color=AGENTS_INFO["Cerebro"]["color"]))
                 self.after(200, lambda: self.write_real_time("Done.", "success"))
                 self.is_processing = False
@@ -4820,18 +5618,9 @@ except:
                             if sx_cfg.get("send_screenshot_on_complete", False):
                                 self.after(500, lambda: sx.get_bridge().send_screenshot())
                     
-                    if chosen_agent_name == "Voz":
-                        def speak_thread():
-                            import pyttsx3 # type: ignore
- # type: ignore
-                            try:
-                                engine = pyttsx3.init()
-                                engine.say(result)
-                                engine.runAndWait()
-                            except Exception as e:
-                                pass
-                        threading.Thread(target=speak_thread, daemon=True).start()
-                            
+                    # Voice output for Live mode is handled centrally by
+                    # _speak_live_response() after the visible result is known.
+
                     # Phase 115: Sovereign Bridge (EXECUTION) — run BEFORE showing result
                     from _orunex_libs.os_executor import intercept_and_execute # type: ignore
                     exec_results = intercept_and_execute(result)
@@ -4859,8 +5648,15 @@ except:
                     
                     exec_display = _format_exec_output(exec_results)
                     
-                    # Determine what to show: if the result is just the raw tag, show exec output instead
-                    result_is_just_tag = bool(re.match(r"^\[(?:MAKE_|CMD:|FILE:|MKDIR:|GUI_|YOUTUBE:|HEADLESS_|VSCODE:)[^\]]*\]$", result.strip()))
+                    # Determine what to show: if the result is just one or
+                    # more raw machine tags, show the clean executor output
+                    # instead.
+                    _remaining_text = re.sub(
+                        r"\[[^\]]+\]", "", result
+                    ).strip()
+                    result_is_just_tag = bool(result.strip()) and not _remaining_text and bool(
+                        re.search(r"\[[A-Z][^\]]*\]", result)
+                    )
                     
                     # ── CLEAN DISPLAY: no [Cerebro] / [AgentName] prefix in bubbles ──
                     if result_is_just_tag:
@@ -4868,10 +5664,16 @@ except:
                         display_text = exec_display if exec_display else "Action completed."
                         # Strip any leftover agent-name tags from exec output
                         display_text = display_text.replace("[Cerebro]", "").replace("[CEREBRO]", "").replace("[Orunex]", "").strip()
+                        speech_text = display_text
+                        # Voice-first in Live: synthesis starts before the
+                        # bubble is painted, not after it.
+                        self._speak_live_response(speech_text)
                         self.append_history(display_text, tag="Cerebro", color=agent_data["color"])
                     else:
                         # Show clean agent response WITHOUT the [AgentName] prefix
                         clean_result = result.replace("[Cerebro]", "").replace("[CEREBRO]", "").replace("[Orunex]", "").replace(f"[{chosen_agent_name}]", "").strip()
+                        speech_text = clean_result
+                        self._speak_live_response(speech_text)
                         self.append_history(clean_result, tag=chosen_agent_name, color=agent_data["color"])
                         # Show executor output if it adds meaningful information
                         if exec_display and exec_display != result.strip():
@@ -4931,7 +5733,7 @@ except:
                         pass
                 self.after(0, on_error)
             finally:
-                self.after(0, self.stop_screen_glow)
+                self.after(0, self._stop_task_glow)
                 self.is_processing = False
                 if self.execution_status != "CANCELLED":
                     self.execution_status = "IDLE"

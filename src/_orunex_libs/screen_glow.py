@@ -39,8 +39,10 @@ SW_SHOWNOACTIVATE = 4
 HWND_TOPMOST = -1
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
+SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
 SWP_SHOWWINDOW = 0x0040
+SWP_HIDEWINDOW = 0x0080
 ULW_ALPHA = 0x00000002
 AC_SRC_OVER = 0x00
 AC_SRC_ALPHA = 0x01
@@ -89,30 +91,6 @@ class _BLENDFUNCTION(ctypes.Structure):
     ]
 
 
-_WNDPROC = ctypes.WINFUNCTYPE(
-    ctypes.c_ssize_t,
-    wintypes.HWND,
-    wintypes.UINT,
-    wintypes.WPARAM,
-    wintypes.LPARAM,
-)
-
-
-class _WNDCLASSW(ctypes.Structure):
-    _fields_ = [
-        ("style", wintypes.UINT),
-        ("lpfnWndProc", _WNDPROC),
-        ("cbClsExtra", ctypes.c_int),
-        ("cbWndExtra", ctypes.c_int),
-        ("hInstance", wintypes.HINSTANCE),
-        ("hIcon", wintypes.HICON),
-        ("hCursor", wintypes.HANDLE),
-        ("hbrBackground", wintypes.HBRUSH),
-        ("lpszMenuName", wintypes.LPCWSTR),
-        ("lpszClassName", wintypes.LPCWSTR),
-    ]
-
-
 def _smoothstep(value: float) -> float:
     value = max(0.0, min(1.0, value))
     return value * value * (3.0 - 2.0 * value)
@@ -120,8 +98,6 @@ def _smoothstep(value: float) -> float:
 
 class ScreenGlowOverlay:
     """Owns a single layered window and its animation thread."""
-
-    _CLASS_NAME = "OrunexScreenGlowLayer"
 
     def __init__(self, width: int, height: int, fps: int = 24):
         self.width = max(320, int(width))
@@ -138,6 +114,7 @@ class ScreenGlowOverlay:
         self._frame_direct = False
         self._last_error = ""
         self._window_ready = threading.Event()
+        self._hwnd = 0
 
     # ------------------------------------------------------------------ public
     @property
@@ -167,11 +144,39 @@ class ScreenGlowOverlay:
 
     def stop(self, wait: bool = True) -> None:
         self._stop_event.set()
+        # The animation thread owns the window.  It hides the layered window
+        # itself on the next frame, avoiding a cross-thread ShowWindow call
+        # that can block while audio synthesis is busy.
         thread = self._thread
         if wait and thread and thread.is_alive():
             thread.join(timeout=0.9)
         if not thread or not thread.is_alive():
             self._thread = None
+
+    def _hide_window_now(self) -> None:
+        hwnd = getattr(self, "_hwnd", 0)
+        if not hwnd:
+            return
+        try:
+            if "user32" in globals():
+                user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                # Layered windows have occasionally ignored the first hide on
+                # this desktop; SWP_HIDEWINDOW is a second, independent path.
+                user32.SetWindowPos(
+                    hwnd,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOSIZE
+                    | SWP_NOMOVE
+                    | SWP_NOZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_HIDEWINDOW,
+                )
+        except Exception as exc:
+            print(f"[SCREEN GLOW] hide failed: {exc}")
 
     def last_error(self) -> str:
         return self._last_error
@@ -187,7 +192,10 @@ class ScreenGlowOverlay:
         start = time.perf_counter()
         try:
             hwnd, screen_dc, mem_dc, bitmap, old_bitmap, bits = self._create_window()
+            self._hwnd = hwnd
             self._window_ready.set()
+            if self._stop_event.is_set():
+                self._hide_window_now()
             interval = 1.0 / self.fps
             next_frame = time.perf_counter()
             while not self._stop_event.is_set():
@@ -204,17 +212,11 @@ class ScreenGlowOverlay:
                     time.sleep(delay)
                 else:
                     next_frame = time.perf_counter()
-            # Short, smooth fade-out when the task ends.
-            fade_start = time.perf_counter()
-            while True:
-                progress = (time.perf_counter() - fade_start) / 0.24
-                if progress >= 1.0:
-                    break
-                fade = 1.0 - _smoothstep(progress)
-                self._render_frame(bits, fade, time.perf_counter() - start)
-                self._update_window(hwnd, screen_dc, mem_dc)
-                self._pump_messages()
-                time.sleep(1.0 / self.fps)
+            # Live-off is a hard stop: hide the contour immediately from the
+            # thread that owns the window, then release the layered surface in
+            # the finally block.  A fade-out here made the border linger over
+            # the desktop after Live had already been switched off.
+            self._hide_window_now()
         except Exception as exc:  # keep failures out of the UI loop
             self._last_error = str(exc)
             try:
@@ -248,6 +250,7 @@ class ScreenGlowOverlay:
                     user32.DestroyWindow(hwnd)
             except Exception:
                 pass
+            self._hwnd = 0
             self._frame = None
             self._frame_buffer = None
             self._frame_direct = False
@@ -278,13 +281,6 @@ class ScreenGlowOverlay:
             wintypes.HMENU,
             wintypes.HINSTANCE,
             wintypes.LPVOID,
-        ]
-        user32.DefWindowProcW.restype = ctypes.c_ssize_t
-        user32.DefWindowProcW.argtypes = [
-            wintypes.HWND,
-            wintypes.UINT,
-            wintypes.WPARAM,
-            wintypes.LPARAM,
         ]
         user32.GetDC.restype = wintypes.HDC
         user32.GetDC.argtypes = [wintypes.HWND]
@@ -333,23 +329,6 @@ class ScreenGlowOverlay:
         gdi32.DeleteDC.argtypes = [wintypes.HDC]
 
         hinstance = kernel32.GetModuleHandleW(None)
-        self._wndproc = _WNDPROC(self._window_proc)
-        wc = _WNDCLASSW()
-        wc.style = 0
-        wc.lpfnWndProc = self._wndproc
-        wc.cbClsExtra = 0
-        wc.cbWndExtra = 0
-        wc.hInstance = hinstance
-        wc.hIcon = 0
-        wc.hCursor = 0
-        wc.hbrBackground = 0
-        wc.lpszMenuName = None
-        wc.lpszClassName = self._CLASS_NAME
-        user32.RegisterClassW(ctypes.byref(wc))
-        # ERROR_CLASS_ALREADY_EXISTS is harmless.
-        if kernel32.GetLastError() not in (0, 1410):
-            raise ctypes.WinError()
-
         ex_style = (
             WS_EX_LAYERED
             | WS_EX_TRANSPARENT
@@ -357,9 +336,14 @@ class ScreenGlowOverlay:
             | WS_EX_TOOLWINDOW
             | WS_EX_NOACTIVATE
         )
+        # Use a built-in window class.  A Python ctypes WNDPROC is a fatal
+        # liability here: any exception raised from a Win32 callback terminates
+        # the whole process (0xc000041d) instead of surfacing as a Python
+        # traceback.  A STATIC window gives us the same layered popup surface
+        # while Windows owns the window procedure.
         hwnd = user32.CreateWindowExW(
             ex_style,
-            self._CLASS_NAME,
+            "STATIC",
             "",
             WS_POPUP,
             0,
@@ -415,11 +399,6 @@ class ScreenGlowOverlay:
         self._bind_frame(bits)
         return hwnd, screen_dc, mem_dc, bitmap, old_bitmap, bits
 
-    def _window_proc(self, hwnd, msg, wparam, lparam):
-        if msg == 0x0014:  # WM_ERASEBKGND
-            return 1
-        return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
-
     def _pump_messages(self):
         msg = wintypes.MSG()
         while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0x0001):
@@ -435,8 +414,15 @@ class ScreenGlowOverlay:
         while keeping the rounded core line perfectly sharp.
         """
         width, height = self.width, self.height
-        margin = int(round(min(width, height) * 0.093))
-        margin = max(90, min(120, margin))
+        # This is a screen-contour glow, not an inset rectangle.  It hugs the
+        # physical display edge and spends almost all of its visual budget on
+        # a thin inner aura, so it never becomes a box sitting over content.
+        inset = max(2, int(round(min(width, height) * 0.0025)))
+        radius = max(24.0, min(width, height) * 0.018)
+
+        # A compact band is enough for the contour and its soft falloff.
+        margin = int(round(min(width, height) * 0.078))
+        margin = max(64, min(110, margin))
         margin = min(margin, max(32, min(width, height) // 3))
 
         bands = []
@@ -453,8 +439,6 @@ class ScreenGlowOverlay:
             ys = np.arange(y0, y1, dtype=np.float32)[:, None]
             half_w = width / 2.0
             half_h = height / 2.0
-            inset = 22.0
-            radius = 34.0
             qx = np.abs(xs - half_w) - (half_w - inset - radius)
             qy = np.abs(ys - half_h) - (half_h - inset - radius)
             outside = np.sqrt(
@@ -465,31 +449,36 @@ class ScreenGlowOverlay:
             inward = np.maximum(-d, 0.0)
             outward = np.maximum(d, 0.0)
             inside = d <= 0.0
-            core = np.exp(-((np.abs(d) / 1.6) ** 2))
+            core = np.exp(-((np.abs(d) / 2.4) ** 2))
             inner = np.where(
-                inside, np.exp(-((inward / 22.0) ** 2)), 0.0
+                inside, np.exp(-((inward / 24.0) ** 2)), 0.0
             )
             outer = np.where(
-                inside, 0.0, np.exp(-((outward / 10.5) ** 2))
+                inside, 0.0, np.exp(-((outward / 8.0) ** 2))
             )
             far = np.where(
-                inside, np.exp(-((inward / 72.0) ** 2)), 0.0
+                inside, np.exp(-((inward / 52.0) ** 2)), 0.0
             )
-            profile = 0.78 * core + 0.30 * inner + 0.18 * outer + 0.10 * far
+            profile = 0.90 * core + 0.20 * inner + 0.06 * outer + 0.025 * far
             profile = np.clip(profile, 0.0, 1.0).astype(np.float32)
 
-            # Fade the very faint tail to zero at the inner edge of the
-            # frame.  Use distance to the nearest screen edge, not distance
-            # to this band's edge: a top-band pixel near the left edge must
-            # keep the vertical left glow, otherwise the bands meet with a
-            # hard horizontal cut.
             edge_dist = np.minimum(
                 np.minimum(xs, width - 1 - xs),
                 np.minimum(ys, height - 1 - ys),
             )
-            fade = np.clip((margin - edge_dist) / 30.0, 0.0, 1.0)
-            fade = fade * fade * (3.0 - 2.0 * fade)
-            profile *= fade
+
+            # Keep the luminous contour at the physical screen edge.  The
+            # one-pixel ramp only avoids a hard clipping line; it must not
+            # create the transparent gap that made the old overlay look like
+            # a small box floating inside the display.
+            edge_fade = np.clip(edge_dist / 1.5, 0.0, 1.0)
+
+            # Fade the faint tail to zero at the inner boundary of this band,
+            # so adjacent bands meet without a visible horizontal/vertical cut.
+            band_fade = np.clip((margin - edge_dist) / 30.0, 0.0, 1.0)
+            band_fade = band_fade * band_fade * (3.0 - 2.0 * band_fade)
+
+            profile *= edge_fade * band_fade
 
             u = xs / max(1.0, width - 1)
             v = ys / max(1.0, height - 1)

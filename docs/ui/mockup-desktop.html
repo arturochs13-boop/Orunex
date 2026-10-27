@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orunex Desktop — Light UI</title>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --soft: #f8f9fa;
+      --muted: #f2f4f7;
+      --border: #e6e9ee;
+      --border-strong: #d9dee6;
+      --text: #111318;
+      --text-dim: #667085;
+      --muted-text: #98a2b3;
+      --blue: #0668e1;
+      --blue-hover: #0059c7;
+      --blue-soft: #edf4ff;
+      --blue-border: #cfe2ff;
+      --red: #e15241;
+      --red-soft: #fef1ef;
+      --red-border: #f4cfc9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      padding: 32px;
+      background: #eef1f5;
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Roboto, system-ui, sans-serif;
+    }
+    .caption {
+      font-size: 12px;
+      color: #667085;
+    }
+    .window {
+      width: 1240px;
+      max-width: 100%;
+      height: 840px;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      border: 1px solid #d9dee6;
+      border-radius: 0;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(17, 19, 24, 0.14);
+    }
+    .header {
+      height: 72px;
+      flex: 0 0 72px;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .wordmark { width: 104px; height: auto; }
+    .divider {
+      width: 1px;
+      height: 26px;
+      margin: 0 16px 0 20px;
+      background: var(--border);
+      flex: 0 0 1px;
+    }
+    .chip {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--soft);
+      color: var(--text-dim);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .dot { font-size: 9px; color: var(--muted-text); }
+    .header-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .meta {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      border-radius: 9px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .stop {
+      height: 34px;
+      padding: 0 14px;
+      border: 1px solid var(--red-border);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--red);
+      font: 700 11px Inter, "Segoe UI", sans-serif;
+      cursor: pointer;
+    }
+    .gear {
+      width: 36px;
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--text-dim);
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .toolbar {
+      height: 54px;
+      flex: 0 0 54px;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .tool {
+      height: 32px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-dim);
+      font: 400 12px Inter, "Segoe UI", sans-serif;
+      cursor: pointer;
+    }
+    .tool:hover { background: var(--surface); }
+    .core {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-dim);
+      font-size: 11px;
+    }
+    .core .dot { color: var(--blue); }
+    .main {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 24px 0;
+    }
+    .stream {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 22px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+    .stream-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .stream-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0 0 3px;
+    }
+    .stream-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin: 0;
+    }
+    .stream-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status {
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 10px;
+      border-radius: 8px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font: 700 10px Inter, "Segoe UI", sans-serif;
+    }
+    .icon-btn {
+      width: 30px;
+      height: 30px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .clear {
+      border: 0;
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .tabs {
+      display: flex;
+      gap: 3px;
+      margin: 16px 0 0;
+      padding: 3px;
+      width: max-content;
+      border-radius: 10px;
+      background: var(--soft);
+    }
+    .tab {
+      padding: 7px 14px;
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 11px;
+      box-shadow: 0 1px 2px rgba(17, 19, 24, 0.04);
+    }
+    .empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--blue);
+      font-size: 12px;
+      text-align: center;
+    }
+    .empty small {
+      color: var(--text-dim);
+      font-size: 10px;
+    }
+    .composer-wrap { padding: 10px 0 16px; }
+    .composer {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 9px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+    }
+    .composer .ghost {
+      height: 34px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-dim);
+      font: 400 11px Inter, "Segoe UI", sans-serif;
+      cursor: pointer;
+    }
+    .composer .ghost:hover { background: var(--muted); }
+    .prompt {
+      flex: 1;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      padding: 0 2px;
+      color: var(--muted-text);
+      font-size: 13px;
+    }
+    .swarm {
+      height: 34px;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border-radius: 8px;
+      background: var(--soft);
+      color: var(--text-dim);
+      font-size: 11px;
+    }
+    .send {
+      height: 38px;
+      padding: 0 20px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--blue);
+      color: #fff;
+      font: 700 12px Inter, "Segoe UI", sans-serif;
+      cursor: pointer;
+    }
+    .send:hover { background: var(--blue-hover); }
+    .hint {
+      margin: 5px 4px 0;
+      color: var(--muted-text);
+      font-size: 10px;
+    }
+    @media (max-width: 1300px) {
+      .window { height: 760px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="window" role="img" aria-label="Orunex desktop light interface mockup">
+    <header class="header">
+      <img class="wordmark" src="orunex-wordmark.png" alt="Orunex" />
+      <div class="divider"></div>
+      <div class="chip"><span class="dot">●</span> Simplex Bridge · Not paired</div>
+      <div class="header-right">
+        <div class="meta"><span>⚡</span> Powered by Meta Llama 3.2 Vision</div>
+        <button class="stop" type="button">■ Stop Agent</button>
+        <button class="gear" type="button" aria-label="Settings">⚙</button>
+      </div>
+    </header>
+
+    <nav class="toolbar" aria-label="Orunex tools">
+      <button class="tool" type="button">VS Code</button>
+      <button class="tool" type="button">Copilot</button>
+      <button class="tool" type="button">Integrations</button>
+      <button class="tool" type="button">Automations</button>
+      <div class="core"><span class="dot">●</span> Local core ready</div>
+    </nav>
+
+    <main class="main">
+      <section class="stream">
+        <div class="stream-head">
+          <div>
+            <h1 class="stream-title">Execution stream</h1>
+            <p class="stream-sub">Commands, responses and execution steps.</p>
+          </div>
+          <div class="stream-actions">
+            <span class="status">● Ready</span>
+            <button class="icon-btn" type="button" aria-label="Add workspace">+</button>
+            <button class="clear" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div class="tabs"><div class="tab">Workspace 1</div></div>
+
+        <div class="empty">
+          <div>Workspace ready. Describe a task below to begin.</div>
+          <small>Real messages and execution steps will appear here.</small>
+        </div>
+      </section>
+
+      <div class="composer-wrap">
+        <div class="composer">
+          <button class="ghost" type="button">Attach</button>
+          <div class="prompt">Ask Orunex or describe a task...</div>
+          <button class="ghost" type="button">Voice</button>
+          <div class="swarm">Swarm 1 <span>▾</span></div>
+          <button class="ghost" type="button">Tasks</button>
+          <button class="send" type="button">Send</button>
+        </div>
+        <div class="hint">Enter to send · Attach files, use voice, or build a task list.</div>
+      </div>
+    </main>
+  </div>
+  <div class="caption">Desktop interface only. Android is a separate client.</div>
+</body>
+</html>

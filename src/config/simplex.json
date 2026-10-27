@@ -1,0 +1,12 @@
+{
+    "enabled": true,
+    "ws_port": 5227,
+    "contact_address": "",
+    "notify_on_complete": true,
+    "notify_on_error": true,
+    "notify_on_file": true,
+    "remote_commands": true,
+    "send_screenshot_on_complete": false,
+    "last_contact_name": "Arturo_1",
+    "last_contact_id": "5"
+}

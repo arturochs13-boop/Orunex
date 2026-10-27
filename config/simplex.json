@@ -1,0 +1,12 @@
+{
+    "_comment": "Configuración de Simplex Messenger para Orunex",
+    "_instrucciones": "1) Instala simplex-chat CLI. 2) Inicia: simplex-chat -p 5225. 3) Cambia enabled a true.",
+    "enabled": true,
+    "ws_port": 5227,
+    "contact_address": "",
+    "notify_on_complete": true,
+    "notify_on_error": true,
+    "notify_on_file": true,
+    "remote_commands": true,
+    "heartbeat_interval_seconds": 3600
+}
