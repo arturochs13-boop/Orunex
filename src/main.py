@@ -44,6 +44,7 @@ import threading
 import time
 import traceback
 import re
+from pathlib import Path
 from tkinter import messagebox, simpledialog
 
 # --- NUCLEAR LAYOUT GUARD (Global) ---
@@ -307,6 +308,8 @@ class OrunexApp(ctk.CTk):
         self._last_live_toggle = 0.0
         self._live_audio_watch_after = None
         self._command_context = {}
+        self._meta_health = {}
+        self._meta_health_running = False
         self._shutting_down = False
         self._thinking_visible = False
         self._thinking_after_id = None
@@ -343,6 +346,7 @@ class OrunexApp(ctk.CTk):
         self.empty_state = None
         self._empty_headline = None
         self._current_chat_key = "current"
+        self._agent_log_last = ("", 0.0)
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.end_fullscreen)
 
@@ -437,6 +441,92 @@ class OrunexApp(ctk.CTk):
         finally:
             self._backend_ready = True
             self._maybe_finish_splash()
+            # Verify the real Meta connection once the window is interactive.
+            # A missing/rejected key must be visible, not silently replaced by
+            # canned desktop shortcuts.
+            try:
+                self.after(1500, self._start_meta_health_check)
+            except Exception:
+                pass
+
+    def _start_meta_health_check(self):
+        """Run one real Meta request in the background and report failures."""
+        if getattr(self, "_meta_health_running", False):
+            return
+        self._meta_health_running = True
+        import threading
+
+        def worker():
+            try:
+                from _orunex_libs.ollama_client import verify_connection
+
+                result = verify_connection(timeout=25.0)
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "configured": False,
+                }
+            self._meta_health = result
+            self._meta_health_running = False
+            # Update the header indicator from the worker via Tk's event loop.
+            try:
+                if result.get("ok"):
+                    self.after(
+                        0,
+                        lambda: self.meta_status_lbl.configure(
+                            text=" · online", text_color="#1F9D55"
+                        )
+                    )
+                else:
+                    self.after(
+                        0,
+                        lambda: self.meta_status_lbl.configure(
+                            text=" · offline", text_color="#E15241"
+                        )
+                    )
+            except Exception:
+                pass
+            if result.get("ok"):
+                print(
+                    "[Meta API] connectivity OK "
+                    f"({result.get('latency_s')}s, source={result.get('key_source')})"
+                )
+                return
+            print(f"[Meta API] connectivity FAILED: {result.get('error')}")
+            message = self._meta_health_message(result)
+            try:
+                self.after(
+                    0, lambda m=message: self._show_activity_line(m, "error")
+                )
+            except Exception:
+                pass
+
+        threading.Thread(
+            target=worker, name="orunex-meta-health", daemon=True
+        ).start()
+
+    def _meta_health_message(self, result):
+        """Short, honest connectivity warning; never prints the key."""
+        error = str(result.get("error") or "").lower()
+        if not result.get("configured") or "not configured" in error:
+            return (
+                "Meta API: clave no disponible en este proceso. "
+                "Revisa META_API_KEY y reinicia Orunex."
+            )
+        if "401" in error or "403" in error or "unauthorized" in error:
+            return (
+                "Meta API: la clave fue rechazada (401/403). "
+                "Revisa META_API_KEY y reinicia Orunex."
+            )
+        if "429" in error or "rate limit" in error:
+            return "Meta API: límite de solicitudes alcanzado. Reintentando en breve."
+        if any(
+            marker in error
+            for marker in ("timeout", "timed out", "connection", "unreachable", "ssl")
+        ):
+            return "Meta API: sin conexión en este momento. Revisa la red."
+        return f"Meta API: la verificación falló. {str(result.get('error') or '')[:160]}"
 
     def start_evolution_heartbeat(self):
         """Triggers the autonomous evolution script every 5 minutes."""
@@ -446,8 +536,16 @@ class OrunexApp(ctk.CTk):
                 time.sleep(300) # Every 5 minutes
                 try:
                     res = orunex_evolve.evolve()
-                    if res:
-                        self.after(0, lambda m=res: self._update_log_pill(m))
+                    text = str(res or "").strip()
+                    # The evolution heartbeat used to overwrite the chat
+                    # status with "No logs found." every five minutes, which
+                    # made a healthy session look broken.
+                    if text and text.lower() not in {
+                        "no logs found.",
+                        "no logs found",
+                        "sin registros",
+                    }:
+                        self.after(0, lambda m=text: self._update_log_pill(m))
                 except Exception:
                     pass
         import threading
@@ -567,6 +665,18 @@ class OrunexApp(ctk.CTk):
         except Exception:
             pass
         try:
+            from _orunex_libs import activity_log  # type: ignore
+
+            activity_log.unsubscribe(self._on_activity_event)
+        except Exception:
+            pass
+        try:
+            from _orunex_libs import click_fx  # type: ignore
+
+            click_fx.shutdown()
+        except Exception:
+            pass
+        try:
             self.quit()
         except Exception:
             pass
@@ -616,6 +726,20 @@ class OrunexApp(ctk.CTk):
         self._build_composer(self.workspace_view)
         self._build_workspace(self.workspace_view)
 
+        # The activity bus is UI-agnostic; subscribe once the log panel exists.
+        try:
+            from _orunex_libs import activity_log  # type: ignore
+
+            activity_log.subscribe(self._on_activity_event)
+        except Exception:
+            pass
+        try:
+            from _orunex_libs import click_fx  # type: ignore
+
+            click_fx.configure(self)
+        except Exception:
+            pass
+
         self._active_view = "workspace"
         self._set_view_title("workspace")
         self.workspace_view.pack(fill="both", expand=True)
@@ -663,6 +787,16 @@ class OrunexApp(ctk.CTk):
             font=("Segoe UI", 11, "bold"),
             text_color=THEME["blue"],
         ).pack(side="left")
+        # Visible connection state: a green "online" is proof the key resolved
+        # and Muse answered; red "offline" avoids the silent canned-response
+        # behaviour that made Orunex look brainless.
+        self.meta_status_lbl = ctk.CTkLabel(
+            powered,
+            text=" · checking",
+            font=("Segoe UI", 9),
+            text_color=THEME["text_dim"],
+        )
+        self.meta_status_lbl.pack(side="left")
 
         ctk.CTkFrame(
             self.content_area, height=1, fg_color=THEME["border"]
@@ -1464,11 +1598,15 @@ class OrunexApp(ctk.CTk):
                 # own voice and turns it into a new task.  This is intentionally
                 # short: a long guard was another source of perceived lag.
                 try:
-                    self.after(300, resume_microphone)
+                    self.after(120, resume_microphone)
                 except Exception:
                     resume_microphone()
 
-            started = speaker.speak(text, on_done=done)
+            started = speaker.speak(
+                text,
+                on_done=done,
+                language=self.__dict__.get("_live_voice_language") or None,
+            )
             if started:
                 return True
             if audio is not None:
@@ -1597,6 +1735,10 @@ class OrunexApp(ctk.CTk):
             return False
         patterns = (
             r"\bque ves\b",
+            r"\bpuedes ver\b",
+            r"\bpuede ver\b",
+            r"\bver mi pantalla\b",
+            r"\bves (mi|la|esta|tu) pantalla\b",
             r"\bque se ve\b",
             r"\bque hay en (mi|la|esta|tu) pantalla\b",
             r"\bdescribe(me)? (la|mi|esta|tu)? ?pantalla\b",
@@ -1613,6 +1755,17 @@ class OrunexApp(ctk.CTk):
     def _capture_screen_frame(self):
         """Fresh full-screen capture for an on-demand vision answer."""
         try:
+            from _orunex_libs import activity_log  # type: ignore
+
+            activity_log.emit(
+                "screen_capture",
+                "Capturing screen for vision analysis…",
+                "info",
+                monitor=1,
+            )
+        except Exception:
+            pass
+        try:
             import mss
             from PIL import Image
 
@@ -1625,15 +1778,39 @@ class OrunexApp(ctk.CTk):
                 image = Image.frombytes(
                     "RGB", shot.size, shot.bgra, "raw", "BGRX"
                 )
-            # A downscaled frame uploads and analyzes much faster, and the
-            # model still reads titles and dialogs at this size.
+            # 1280px keeps small UI text readable while still uploading and
+            # analyzing quickly.  1024px was fast but misread taskbar/clock
+            # text as an error dialog.
             if image.width > 1280:
                 height = int(image.height * 1280 / image.width)
                 image = image.resize((1280, height))
+            try:
+                from _orunex_libs import activity_log  # type: ignore
+
+                activity_log.emit(
+                    "screen_capture",
+                    f"Screen captured · {image.width}×{image.height}",
+                    "success",
+                    monitor=1,
+                    width=image.width,
+                    height=image.height,
+                )
+            except Exception:
+                pass
             return LiveVisionFrame(
                 image=image, captured_at=time.time(), monitor=1
             )
         except Exception as exc:
+            try:
+                from _orunex_libs import activity_log  # type: ignore
+
+                activity_log.emit(
+                    "screen_capture",
+                    f"Screen capture failed: {exc}",
+                    "error",
+                )
+            except Exception:
+                pass
             print(f"[VISION] screen capture failed: {exc}")
             return None
 
@@ -1643,45 +1820,70 @@ class OrunexApp(ctk.CTk):
         Technical details go to the console only; the chat and the voice
         always get a short, human answer.
         """
-        spanish = not re.search(
-            r"\b(what|screen|see|look|describe)\b", str(task or ""), re.I
+        # "Describe" is a word in both Spanish and English, so the old
+        # English-only regex made a Spanish screen question answer in English.
+        # Prefer explicit Spanish markers first, then fall back to English.
+        value = str(task or "").lower()
+        english_markers = re.search(
+            r"\b(what|screen|see|look|the|my|on)\b", value
         )
+        spanish_markers = re.search(
+            r"[¿¡áéíóúñ]|\b(que|qué|pantalla|ventana|ahora|texto|mi|por favor)\b",
+            value,
+        )
+        spanish = bool(spanish_markers) or not english_markers
         unavailable = (
             "Ahora mismo no puedo ver tu pantalla. Inténtalo de nuevo en unos segundos."
             if spanish
             else "I can't see your screen right now. Try again in a few seconds."
         )
+        provider = None
         try:
             from _orunex_libs.live_vision import MetaVisionProvider
 
             provider = MetaVisionProvider()
             if not provider.can_analyze:
                 print("[VISION] screen question: provider not configured")
-                return unavailable
-            provider.timeout = 30.0
+                return self._screen_vision_error(
+                    "Meta API key is not configured", spanish
+                )
+            provider.timeout = 45.0
             frame = self._capture_screen_frame()
             if frame is None:
                 return unavailable
             if spanish:
                 prompt = (
                     "Describe en español, en 2 o 3 frases cortas y sin listas, "
-                    "qué se ve en esta captura de pantalla: la aplicación o "
-                    "sitio principal, el contenido visible (títulos, videos, "
-                    "textos) y cualquier ventana de error. Si se ve la "
-                    "ventana de Orunex, ignórala y describe el resto de la "
-                    "pantalla. No inventes nada que no sea visible."
+                    "qué se ve en esta captura de pantalla. Empieza por la "
+                    "ventana principal que está en primer plano (por ejemplo "
+                    "Orunex, un navegador, un editor o una app) y describe su "
+                    "contenido visible: títulos, textos, botones, videos o "
+                    "cualquier ventana de error. Si la ventana de Orunex es "
+                    "la principal, describe también lo que muestra su chat. "
+                    "No inventes nada que no sea visible; si un texto no se "
+                    "lee, dilo."
                 )
             else:
                 prompt = (
                     "Describe in English, in 2 or 3 short sentences with no "
-                    "lists, what is visible in this screenshot: the main app "
-                    "or site, the visible content (titles, videos, text) and "
-                    "any error dialog. If the Orunex window is visible, "
-                    "ignore it and describe the rest of the screen. Do not "
-                    "invent anything that is not visible."
+                    "lists, what is visible in this screenshot. Start with "
+                    "the main window in the foreground (for example Orunex, "
+                    "a browser, an editor or an app) and describe its visible "
+                    "content: titles, text, buttons, videos or any error "
+                    "dialog. If the Orunex window is the main one, describe "
+                    "what its chat shows too. Do not invent anything that is "
+                    "not visible; if text is unreadable, say so."
                 )
             started = time.monotonic()
-            answer = str(provider.analyze(frame, prompt) or "").strip()
+            answer = str(
+                provider.analyze(
+                    frame,
+                    prompt,
+                    max_tokens=1200,
+                    reasoning_effort="minimal",
+                )
+                or ""
+            ).strip()
             print(
                 f"[VISION] screen answered in {time.monotonic() - started:.1f}s "
                 f"chars={len(answer)}"
@@ -1695,8 +1897,53 @@ class OrunexApp(ctk.CTk):
                 answer = cut[: end + 1] if end >= 200 else cut.rstrip() + "…"
             return answer
         except Exception as exc:
-            print(f"[VISION] screen question failed: {exc}")
-            return unavailable
+            detail = str(getattr(provider, "last_error", "") or exc)
+            print(f"[VISION] screen question failed: {detail}")
+            return self._screen_vision_error(detail, spanish)
+
+    def _screen_vision_error(self, detail, spanish):
+        """Turn a vision failure into a short, actionable user message.
+
+        The old generic "I can't see your screen" hid the real cause (missing
+        key, rejected key, rate limit, timeout), which made Orunex look like it
+        had no brain at all.
+        """
+        folded = str(detail or "").lower()
+        if any(
+            marker in folded
+            for marker in ("not configured", "401", "403", "unauthorized", "invalid api key")
+        ):
+            return (
+                "No puedo ver tu pantalla: la clave de Meta no está disponible "
+                "o fue rechazada. Revisa META_API_KEY y reinicia Orunex."
+                if spanish
+                else "I can't see your screen: the Meta key is missing or was "
+                "rejected. Check META_API_KEY and restart Orunex."
+            )
+        if "429" in folded or "rate limit" in folded:
+            return (
+                "No puedo ver tu pantalla ahora mismo: Meta limitó las "
+                "solicitudes. Reintenta en unos segundos."
+                if spanish
+                else "I can't see your screen right now: Meta rate-limited the "
+                "request. Try again in a few seconds."
+            )
+        if any(
+            marker in folded
+            for marker in ("timeout", "timed out", "connection", "unreachable", "ssl")
+        ):
+            return (
+                "No puedo ver tu pantalla: no hay conexión con Meta en este "
+                "momento. Reintenta en unos segundos."
+                if spanish
+                else "I can't see your screen: Meta is unreachable right now. "
+                "Try again in a few seconds."
+            )
+        return (
+            "Ahora mismo no puedo analizar tu pantalla. Reintenta en unos segundos."
+            if spanish
+            else "I can't analyze your screen right now. Try again in a few seconds."
+        )
 
     def _voice_transcript_is_actionable(self, text):
         """Reject media/background chatter before it reaches the agent.
@@ -1771,6 +2018,26 @@ class OrunexApp(ctk.CTk):
             # silently.  They must not create a status line or a chat bubble.
             return
         text = self._strip_live_wake_word(text) or text
+        # Pin the spoken reply to the user's language.  Guessing from a short
+        # answer ("Done.") used to flip English turns to the Spanish voice.
+        try:
+            folded_voice = str(text).lower()
+            english_hit = re.search(
+                r"\b(open|please|hello|thanks|thank|what|show|play|screen|"
+                r"tradingview|google|sheets|chrome|look|see)\b",
+                folded_voice,
+            )
+            spanish_hit = re.search(
+                r"\b(abre|abrir|hola|gracias|quiero|puedes|pantalla|mira|"
+                r"entra|reproduce|hojas|calculadora)\b",
+                folded_voice,
+            )
+            if english_hit and not spanish_hit:
+                self._live_voice_language = "en"
+            elif spanish_hit:
+                self._live_voice_language = "es"
+        except Exception:
+            pass
         recent = getattr(self, "_live_recent_transcripts", None)
         if recent is None:
             from collections import deque
@@ -2102,6 +2369,101 @@ class OrunexApp(ctk.CTk):
         except Exception:
             pass
 
+    def _build_agent_log(self, parent):
+        """Compact OpenCode-style activity panel.
+
+        It sits above the working-state pills and below the conversation.  The
+        conversation remains the primary surface; this panel is deliberately
+        small, monospace and scrollable so long tool traces stay readable.
+        """
+        # The activity panel starts collapsed.  A permanently visible 160px
+        # console used to steal vertical space from the conversation even when
+        # there was nothing to show.  The header remains available and the
+        # user can expand it when a tool trace is interesting.
+        self._agent_log_expanded = False
+        self._agent_log_count = 0
+        self._empty_state_resize_bind = None
+        self.agent_log_host = ctk.CTkFrame(
+            parent,
+            fg_color=THEME["surface"],
+            corner_radius=14,
+            border_width=1,
+            border_color=THEME["border"],
+            height=38,
+        )
+        self.agent_log_host.pack(side="bottom", fill="x", pady=(6, 6))
+        self.agent_log_host.pack_propagate(False)
+
+        header = ctk.CTkFrame(self.agent_log_host, fg_color="transparent")
+        header.pack(fill="x", padx=12, pady=(7, 0))
+
+        ctk.CTkLabel(
+            header,
+            text="AGENT ACTIVITY",
+            font=("Segoe UI", 9, "bold"),
+            text_color=THEME["blue"],
+            anchor="w",
+        ).pack(side="left")
+
+        self.agent_log_count_lbl = ctk.CTkLabel(
+            header,
+            text="0 events",
+            font=("Segoe UI", 9),
+            text_color=THEME["muted"],
+            anchor="e",
+        )
+        self.agent_log_count_lbl.pack(side="right", padx=(8, 4))
+
+        ctk.CTkButton(
+            header,
+            text="Clear",
+            width=44,
+            height=20,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=THEME["surface_muted"],
+            text_color=THEME["text_dim"],
+            font=("Segoe UI", 9),
+            command=self._clear_agent_log,
+        ).pack(side="right")
+
+        self.agent_log_toggle_btn = ctk.CTkButton(
+            header,
+            text="Show",
+            width=44,
+            height=20,
+            corner_radius=6,
+            fg_color="transparent",
+            hover_color=THEME["surface_muted"],
+            text_color=THEME["text_dim"],
+            font=("Segoe UI", 9),
+            command=self._toggle_agent_log,
+        )
+        self.agent_log_toggle_btn.pack(side="right", padx=(0, 2))
+
+        self.agent_log = ctk.CTkTextbox(
+            self.agent_log_host,
+            height=112,
+            corner_radius=8,
+            border_width=0,
+            fg_color=THEME["surface_soft"],
+            text_color=THEME["text"],
+            font=("Consolas", 10),
+            wrap="word",
+        )
+        for level, color in (
+            ("info", THEME["text_dim"]),
+            ("success", THEME["blue"]),
+            ("warning", THEME["warning"]),
+            ("error", THEME["error"]),
+            ("muted", THEME["muted"]),
+        ):
+            try:
+                self.agent_log.tag_config(level, foreground=color)
+            except Exception:
+                pass
+        self.agent_log.configure(state="disabled")
+
     def _build_workspace(self, parent=None):
         parent = parent or self.main_frame
         self.workspace_frame = ctk.CTkFrame(
@@ -2119,6 +2481,7 @@ class OrunexApp(ctk.CTk):
         self.status_host.pack(side="bottom", fill="x")
         self._build_thinking_chip(self.status_host)
         self._build_vscode_chip(self.status_host)
+        self._build_agent_log(self.workspace_frame)
 
         self.history_frame = ctk.CTkFrame(
             self.workspace_frame,
@@ -2194,8 +2557,9 @@ class OrunexApp(ctk.CTk):
                 pass
 
         frame = ctk.CTkFrame(self.chat_scroll, fg_color="transparent")
-        frame.pack(fill="x", pady=(70, 20))
+        frame.pack(fill="x", pady=(24, 20))
 
+        headline = None
         try:
             headline = AnimatedGradientText(
                 frame,
@@ -2211,6 +2575,10 @@ class OrunexApp(ctk.CTk):
                     "#7C3AED",
                 ),
                 glow_color="#8B5CF6",
+                # Start only after the scroll position and responsive padding
+                # are settled; otherwise the fade can finish while the canvas
+                # is still scrolled to the previous chat's bottom.
+                autostart=False,
             )
             headline.pack(anchor="center")
             self._empty_headline = headline
@@ -2225,20 +2593,68 @@ class OrunexApp(ctk.CTk):
             ).pack(anchor="center", pady=18)
 
         self.empty_state = frame
+        self._bind_empty_state_resize(frame)
 
-        # A previous conversation may have left the scrollable canvas at the
-        # bottom.  Keep the empty headline in view without disturbing a chat
-        # that is populated before the idle callback runs.
-        def _reset_empty_state_scroll(expected=frame):
+        def _prepare_empty_state(expected=frame, animated=headline):
             if getattr(self, "empty_state", None) is not expected:
                 return
+            self._position_empty_state(expected)
             try:
                 self.chat_scroll._parent_canvas.yview_moveto(0.0)
             except Exception:
                 pass
+            if animated is not None:
+                try:
+                    animated.start()
+                except Exception:
+                    pass
 
+        # The first idle pass positions the headline; the second pass catches
+        # the real canvas height after the window/splash transition.
         try:
-            self.after_idle(_reset_empty_state_scroll)
+            self.after_idle(_prepare_empty_state)
+        except Exception:
+            pass
+        try:
+            self.after(60, _prepare_empty_state)
+        except Exception:
+            pass
+
+    def _bind_empty_state_resize(self, frame):
+        """Keep the empty headline vertically centred as the window resizes."""
+        try:
+            canvas = self.chat_scroll._parent_canvas
+            previous = getattr(self, "_empty_state_resize_bind", None)
+            if previous:
+                try:
+                    canvas.unbind("<Configure>", previous)
+                except Exception:
+                    pass
+            self._empty_state_resize_bind = canvas.bind(
+                "<Configure>",
+                lambda _event, expected=frame: self._position_empty_state(
+                    expected
+                ),
+                add="+",
+            )
+        except Exception:
+            self._empty_state_resize_bind = None
+
+    def _position_empty_state(self, expected=None):
+        frame = getattr(self, "empty_state", None)
+        if frame is None:
+            return
+        if expected is not None and frame is not expected:
+            return
+        try:
+            canvas = self.chat_scroll._parent_canvas
+            height = max(1, int(canvas.winfo_height()))
+            requested = max(1, int(frame.winfo_reqheight()))
+            top = max(24, (height - requested) // 2 - 8)
+            # Do not push the headline into the composer on very short windows.
+            top = min(top, max(24, height // 2))
+            frame.pack_configure(pady=(top, 20))
+            canvas.yview_moveto(0.0)
         except Exception:
             pass
 
@@ -2260,6 +2676,14 @@ class OrunexApp(ctk.CTk):
                 frame.destroy()
             except Exception:
                 pass
+        try:
+            canvas = self.chat_scroll._parent_canvas
+            bind_id = getattr(self, "_empty_state_resize_bind", None)
+            if bind_id:
+                canvas.unbind("<Configure>", bind_id)
+        except Exception:
+            pass
+        self._empty_state_resize_bind = None
         self.empty_state = None
         self._empty_headline = None
 
@@ -2306,6 +2730,35 @@ class OrunexApp(ctk.CTk):
             self.chats.append(chat)
         chat_store.save_chats(self.chats)
 
+    def _conversation_history_snapshot(self):
+        """Return a copy of the active chat's user/assistant turns.
+
+        The agent receives prior turns as real message history instead of a
+        flat prompt.  System notices are excluded here; the reasoning layer
+        applies its own bounded window and drops the current user turn so it is
+        not duplicated.
+        """
+        chat = getattr(self, "current_chat", None)
+        if not isinstance(chat, dict):
+            return []
+        messages = chat.get("messages") or []
+        if not isinstance(messages, list):
+            return []
+        snapshot = []
+        for message in list(messages):
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "").strip().lower()
+            if role not in {"user", "assistant"}:
+                continue
+            text = message.get("text")
+            if text is None:
+                text = message.get("content")
+            if not str(text or "").strip():
+                continue
+            snapshot.append({"role": role, "content": str(text)})
+        return snapshot
+
     def _record_message(self, text, tag, color, is_user, is_system):
         """Append a rendered message to the active chat and persist it."""
         if not text:
@@ -2335,12 +2788,16 @@ class OrunexApp(ctk.CTk):
         self._refresh_chat_list()
 
     def _clear_chat_ui(self, show_empty=True):
-        headline = getattr(self, "_empty_headline", None)
-        if headline is not None:
-            try:
-                headline.stop()
-            except Exception:
-                pass
+        # Activity is per-turn/session, not part of a saved conversation.
+        # Switching chats must not leave the previous trace looking live.
+        try:
+            self._reset_agent_activity()
+        except Exception:
+            pass
+        try:
+            self._dismiss_empty_state()
+        except Exception:
+            pass
         active_hist = self.get_active_history()
         if active_hist:
             for widget in active_hist.winfo_children():
@@ -3055,7 +3512,7 @@ class OrunexApp(ctk.CTk):
 
         canvas.pack_forget()
 
-    def _show_vscode_connecting(self, minimum_seconds=2.2):
+    def _show_vscode_connecting(self, minimum_seconds=0.6):
         """Display the RGB VS Code connection pill for a coding request."""
         if not hasattr(self, "vscode_canvas"):
             return
@@ -4183,10 +4640,170 @@ class OrunexApp(ctk.CTk):
         except Exception:
             pass
 
+    def _activity_prefix(self, event):
+        kind = str(event.get("kind") or "activity").lower()
+        tool = str(event.get("tool") or "")
+        if kind == "thinking":
+            return "THINK"
+        if kind == "tool_call":
+            return {
+                "read_file": "READ",
+                "search_text": "SEARCH",
+                "list_files": "LIST",
+                "recall_memory": "MEMORY",
+            }.get(tool, "TOOL")
+        if kind == "tool_result":
+            return "RESULT"
+        if kind == "tool_skipped":
+            return "SKIP"
+        if kind == "limit":
+            return "LIMIT"
+        if kind == "answer":
+            return "DONE"
+        if kind == "screen_capture":
+            return "SCREEN"
+        if kind == "click":
+            return "CLICK"
+        if kind == "key":
+            return "KEY"
+        if kind == "tab":
+            return "TAB"
+        if kind == "display":
+            return "DISPLAY"
+        if kind == "error":
+            return "ERROR"
+        return "LOG"
+
+    def _append_agent_log(self, message, level="info", prefix="LOG"):
+        """Append one compact line to the persistent activity panel.
+
+        Called only from the Tk thread.  Consecutive identical lines are
+        suppressed for a short window so repeated "Thinking..." pulses do not
+        flood the panel while a long model call is running.
+        """
+        if not hasattr(self, "agent_log"):
+            return
+        try:
+            if not self.agent_log.winfo_exists():
+                return
+        except Exception:
+            return
+        text = re.sub(r"\s+", " ", str(message or "")).strip()
+        if not text:
+            return
+        text = text[:260]
+        level = str(level or "info").lower()
+        if level not in ("info", "success", "warning", "error", "muted"):
+            level = "info"
+        now = time.time()
+        last_key, last_at = getattr(self, "_agent_log_last", ("", 0.0))
+        key = f"{prefix}:{text}"
+        if key == last_key and now - float(last_at or 0.0) < 1.2:
+            return
+        self._agent_log_last = (key, now)
+        line = f"{time.strftime('%H:%M:%S')}  {str(prefix or 'LOG'):<8} {text}\n"
+        try:
+            self.agent_log.configure(state="normal")
+            self.agent_log.insert("end", line, level)
+            self._agent_log_count = int(
+                getattr(self, "_agent_log_count", 0)
+            ) + 1
+            if hasattr(self, "agent_log_count_lbl"):
+                count = self._agent_log_count
+                self.agent_log_count_lbl.configure(
+                    text=f"{count} event" if count == 1 else f"{count} events"
+                )
+            # Keep the widget bounded during long autonomous runs.
+            try:
+                line_count = int(self.agent_log.index("end-1c").split(".")[0])
+                if line_count > 260:
+                    self.agent_log.delete("1.0", "60.0")
+            except Exception:
+                pass
+            self.agent_log.configure(state="disabled")
+            if getattr(self, "_agent_log_expanded", False):
+                self.agent_log.see("end")
+        except Exception:
+            try:
+                self.agent_log.configure(state="disabled")
+            except Exception:
+                pass
+
+    def _append_activity_event(self, event):
+        if not isinstance(event, dict):
+            return
+        message = str(event.get("message") or "").strip()
+        if not message:
+            return
+        level = str(event.get("level") or "info").lower()
+        self._append_agent_log(message, level, self._activity_prefix(event))
+        if level == "error":
+            try:
+                self._set_stream_status("Needs attention", "red")
+            except Exception:
+                pass
+
+    def _on_activity_event(self, event):
+        """Activity-bus subscriber; may be called from a worker thread."""
+        try:
+            self.after(0, lambda e=dict(event): self._append_activity_event(e))
+        except Exception:
+            pass
+
+    def _agent_trace_callback(self, event):
+        """Trace callback passed into the reasoning loop from the task thread."""
+        try:
+            self.after(0, lambda e=dict(event): self._append_activity_event(e))
+        except Exception:
+            pass
+
+    def _clear_agent_log(self):
+        try:
+            self.agent_log.configure(state="normal")
+            self.agent_log.delete("1.0", "end")
+            self.agent_log.configure(state="disabled")
+            self._agent_log_last = ("", 0.0)
+            self._agent_log_count = 0
+            if hasattr(self, "agent_log_count_lbl"):
+                self.agent_log_count_lbl.configure(text="0 events")
+        except Exception:
+            pass
+
+    def _set_agent_log_expanded(self, expanded):
+        """Collapse or expand the activity console without losing its text."""
+        self._agent_log_expanded = bool(expanded)
+        try:
+            if self._agent_log_expanded:
+                self.agent_log_host.configure(height=160)
+                if not self.agent_log.winfo_manager():
+                    self.agent_log.pack(
+                        fill="both", expand=True, padx=10, pady=(2, 8)
+                    )
+                self.agent_log.see("end")
+                self.agent_log_toggle_btn.configure(text="Hide")
+            else:
+                if self.agent_log.winfo_manager():
+                    self.agent_log.pack_forget()
+                self.agent_log_host.configure(height=38)
+                self.agent_log_toggle_btn.configure(text="Show")
+        except Exception:
+            pass
+
+    def _toggle_agent_log(self):
+        self._set_agent_log_expanded(
+            not getattr(self, "_agent_log_expanded", False)
+        )
+
+    def _reset_agent_activity(self):
+        """Clear and collapse the trace when the conversation changes."""
+        self._clear_agent_log()
+        self._set_agent_log_expanded(False)
+
     def write_real_time(self, message: str, level: str = "info", color=None):
         """Write a live status line without adding noise to the conversation."""
         def apply_status():
             self._set_activity(str(message), level)
+            self._append_agent_log(str(message), level, "LOG")
             if level == "error":
                 self._set_stream_status("Needs attention", "red")
             elif level in ("warn", "warning"):
@@ -4580,7 +5197,10 @@ class OrunexApp(ctk.CTk):
                     width = hist_panel.winfo_width()
                     if width < 10:
                         width = 640
-                    label.configure(wraplength=max(220, width - 180))
+                    # Keep the bubble inside the chat column.  The old
+                    # panel-wide wrap let long markdown tables extend past the
+                    # window edge and look clipped.
+                    label.configure(wraplength=max(240, min(760, width - 220)))
                 except Exception:
                     pass
 
@@ -4718,7 +5338,7 @@ class OrunexApp(ctk.CTk):
                     pass
             except Exception as e:
                 remote_ok = False
-                self.after(0, lambda: self.write_real_time(f"Remote error: {e}", "error"))
+                self.after(0, lambda err=str(e): self.write_real_time(f"Remote error: {err}", "error"))
                 try:
                     import _orunex_libs.simplex_bridge as sx  # type: ignore
                     sx.get_bridge().send_notification(f"Orunex error: {e}", "error")
@@ -5140,6 +5760,409 @@ except:
         )
         self._finish_local_task()
 
+    @staticmethod
+    def _process_image_name(pid):
+        """Best-effort executable name for a Windows process id."""
+        if os.name != "nt" or not pid:
+            return ""
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x1000, False, int(pid))
+            if not handle:
+                return ""
+            try:
+                size = ctypes.c_ulong(32768)
+                buffer = ctypes.create_unicode_buffer(size.value)
+                if kernel32.QueryFullProcessImageNameW(
+                    handle, 0, buffer, ctypes.byref(size)
+                ):
+                    return os.path.basename(buffer.value)
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return ""
+        return ""
+
+    def _foreground_window_context(self):
+        """Cheap screen context: foreground app + visible browser in z-order.
+
+        This runs before desktop commands so "aquí en mi pantalla, abre
+        Sheets" reuses the browser the user is actually looking at instead
+        of blindly falling back to the Windows default browser (Edge).
+        """
+        context = {"title": "", "exe": "", "browser": "", "pid": 0}
+        if os.name != "nt":
+            return context
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            foreground = user32.GetForegroundWindow()
+            if foreground:
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(foreground, ctypes.byref(pid))
+                length = user32.GetWindowTextLengthW(foreground)
+                buffer = ctypes.create_unicode_buffer(length + 1) if length else None
+                if buffer is not None:
+                    user32.GetWindowTextW(foreground, buffer, length + 1)
+                    context["title"] = buffer.value.strip()
+                context["pid"] = int(pid.value or 0)
+                context["exe"] = self._process_image_name(context["pid"])
+
+            browser_by_exe = {
+                "chrome.exe": "chrome",
+                "msedge.exe": "edge",
+                "firefox.exe": "firefox",
+                "brave.exe": "brave",
+                "opera.exe": "opera",
+                "vivaldi.exe": "vivaldi",
+            }
+            foreground_browser = browser_by_exe.get(str(context["exe"]).lower(), "")
+            if foreground_browser:
+                context["browser"] = foreground_browser
+                return context
+
+            found = []
+            enum_proc_type = ctypes.WINFUNCTYPE(
+                ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p
+            )
+
+            def callback(hwnd, _lparam):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if int(pid.value or 0) == os.getpid():
+                    return True
+                exe = self._process_image_name(int(pid.value or 0)).lower()
+                browser = browser_by_exe.get(exe, "")
+                if browser:
+                    found.append(browser)
+                    return False
+                return True
+
+            user32.EnumWindows(enum_proc_type(callback), 0)
+            if found:
+                context["browser"] = found[0]
+        except Exception:
+            pass
+        return context
+
+    def _preferred_live_browser(self):
+        """Browser for a Live web command: screen first, then Chrome."""
+        context = self.__dict__.get("_last_screen_context") or {}
+        browser = str(context.get("browser") or "").strip().lower()
+        if browser:
+            return browser, context
+        try:
+            from _orunex_libs.os_executor import _browser_executable
+
+            if _browser_executable("chrome"):
+                return "chrome", context
+        except Exception:
+            pass
+        return "", context
+
+    def _detect_agent_delegation(self, task):
+        """Detect hyper-complex work that must leave the Live fast path.
+
+        Returns ``(payload, message)`` for the headless Orunex agent backend
+        (Android bugfix / TradingView paper analysis), or ``None``.  These
+        are long jobs: Live acknowledges and delegates instead of pretending
+        the desktop UI thread can do them instantly.
+        """
+        import unicodedata
+
+        folded = unicodedata.normalize("NFKD", str(task or ""))
+        folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+        folded = re.sub(r"\s+", " ", folded.lower()).strip()
+        if not folded:
+            return None
+
+        android_fix = (
+            any(word in folded for word in ("emulador", "emulator", "android"))
+            and any(
+                word in folded
+                for word in ("corrige", "corregir", "arregla", "arreglar", "bug", "error", "falla")
+            )
+        ) or folded.startswith("!fix")
+        if android_fix:
+            return (
+                "!fix " + str(task).strip(),
+                "Delegando la corrección Android al agente: abrirá el emulador, "
+                "diagnosticará en VS Code, recompilará y verificará. Te aviso al terminar.",
+            )
+
+        # Follow-ups such as "haz un análisis para una entrada" right after
+        # opening TradingView carry no symbol/app name; the command context
+        # (last opened app) is what makes them trading tasks, not chit-chat.
+        command_context = self.__dict__.get("_command_context") or {}
+        trading_context = (
+            "tradingview" in folded
+            or str(command_context.get("last_app") or "").lower() == "tradingview"
+            or "trading" in str(command_context.get("last_label") or "").lower()
+        )
+        # The app name itself must not count as an analysis trigger, or a
+        # plain "abre TradingView" would delegate an analysis nobody asked
+        # for.  Strip it before looking for the work words.
+        analysis_text = folded.replace("tradingview", " ").replace("trading view", " ")
+        trading_analysis = trading_context and any(
+            word in analysis_text
+            for word in (
+                "analiza", "analizar", "analisis", "analysis", "analyse",
+                "analyze", "opera", "operar", "trade", "senal",
+                "señal", "signal", "entrada", "entry", "ejecut", "ejeuct",
+                "orden", "order", "compra", "comprar", "vende", "vender",
+                "long", "short",
+            )
+        )
+        if trading_analysis or folded.startswith("!trade"):
+            symbol_match = re.search(r"\b[A-Z]{2,12}(?:USDT|USD|USDC|BTC|ETH)\b", str(task).upper())
+            symbol = symbol_match.group(0) if symbol_match else "BTCUSDT"
+            import json as _json
+
+            # "Analiza" and "ejecuta" are different risk decisions.  An
+            # analysis may propose a setup but must clear the autonomous
+            # confidence bar; only an explicit order can use the lower
+            # explicit-order bar.  The backend still requires Muse to return
+            # BUY/SELL with coherent SL/TP and the deterministic risk gate.
+            analysis_only = any(
+                word in folded
+                for word in (
+                    "analiza", "analizar", "analisis", "analysis",
+                    "analyze", "analyse",
+                )
+            )
+            explicit_execution = bool(
+                re.search(r"\b(ejecuta|ejecutar|execute)\b", folded)
+                or re.search(
+                    r"\b(abre|abrir|pon|poner|coloca|colocar|ordena|ordenar)\b"
+                    r"[^.]*\b(orden|order|paper|posicion|position)\b",
+                    folded,
+                )
+                or (
+                    re.search(r"\b(compra|comprar|buy|vende|vender|sell)\b", folded)
+                    and not analysis_only
+                )
+            )
+            if explicit_execution:
+                note = (
+                    "Delegated order: analyse the live TradingView chart and "
+                    "execute the best paper entry the setup supports. Use the "
+                    "live chart price as entry and visible support/resistance "
+                    "for stop loss / take profit. Paper only, no real broker. "
+                    "HOLD only if the chart symbol is unreadable or no "
+                    "coherent stop exists."
+                )
+            else:
+                note = (
+                    "Delegated analysis: analyse the live TradingView chart "
+                    "and propose the best paper setup with entry, stop loss "
+                    "and take profit. Paper only, no real broker. HOLD if no "
+                    "coherent setup exists."
+                )
+            alert = {
+                "symbol": symbol,
+                "timeframe": "1h",
+                "execute": explicit_execution,
+                "note": note,
+            }
+            # Dictated order details ("compra BTCUSDT a 80800") turn a vague
+            # analysis request into a priced alert Muse can actually act on.
+            if any(word in folded for word in ("compra", "comprar", "long", "buy")):
+                alert["side"] = "BUY"
+            elif any(word in folded for word in ("vende", "vender", "short", "sell")):
+                alert["side"] = "SELL"
+            prices = [
+                float(value.replace(",", ""))
+                for value in re.findall(r"\b\d{2,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d{4,}(?:\.\d+)?\b", str(task))
+            ]
+            if prices:
+                alert["price"] = prices[0]
+            action_label = "ejecución paper" if explicit_execution else "análisis"
+            article = "la" if explicit_execution else "el"
+            return (
+                "!trade " + _json.dumps(alert),
+                f"Delegando {article} {action_label} de {symbol} en TradingView "
+                "al agente. Solo abrirá una orden paper si Muse lo confirma.",
+            )
+        return None
+
+    def _delegate_agent_task(self, payload, message):
+        """Start the headless agent backend for a delegated complex task."""
+        try:
+            import subprocess
+
+            root = Path(__file__).resolve().parent.parent
+            app_py = root / "app.py"
+            if not app_py.exists():
+                return False
+            python_exe = Path(sys.executable)
+            console_python = python_exe.with_name("python.exe")
+            if console_python.exists():
+                python_exe = console_python
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            env = os.environ.copy()
+            if not env.get("META_API_KEY"):
+                try:
+                    from _orunex_libs.meta_credentials import get_api_key
+
+                    key = get_api_key()
+                except Exception:
+                    key = ""
+                if not key:
+                    try:
+                        from _orunex_libs.live_audio import _api_key
+
+                        key = _api_key()
+                    except Exception:
+                        key = ""
+                if key:
+                    env["META_API_KEY"] = key
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+            # Capture the backend's AGENT_RESULT lines so Muse's actual
+            # decision comes back into this conversation.  Fire-and-forget
+            # with DEVNULL made Orunex look brainless: the user only ever
+            # saw the canned delegation acknowledgement.
+            import tempfile
+
+            log_path = Path(tempfile.gettempdir()) / (
+                f"orunex_delegated_{int(time.time())}.log"
+            )
+            log_handle = open(log_path, "w", encoding="utf-8", errors="replace")
+            process = subprocess.Popen(
+                [str(python_exe), str(app_py), "--command", payload],
+                cwd=str(root),
+                env=env,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                creationflags=flags,
+            )
+
+            def _watch_delegated(proc=process, handle=log_handle, path=log_path):
+                try:
+                    proc.wait()
+                except Exception:
+                    pass
+                try:
+                    handle.close()
+                except Exception:
+                    pass
+                message = ""
+                try:
+                    lines = path.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()
+                    results = [
+                        line.split("AGENT_RESULT ", 1)[1].strip()
+                        for line in lines
+                        if "AGENT_RESULT " in line
+                    ]
+                    if results:
+                        message = results[-1]
+                except Exception:
+                    message = ""
+                if not message:
+                    message = "La tarea delegada terminó sin un resultado visible."
+                try:
+                    self.after(
+                        0, lambda m=message: self._relay_delegated_result(m)
+                    )
+                except Exception:
+                    pass
+
+            threading.Thread(
+                target=_watch_delegated, name="orunex-delegation-watch", daemon=True
+            ).start()
+            print(f"[Live] Delegated agent task: {payload[:120]}", flush=True)
+            return True
+        except Exception as exc:
+            print(f"[Live] Delegation failed: {exc}", flush=True)
+            return False
+
+    def _relay_delegated_result(self, message):
+        """Show (and speak) the delegated Muse decision in this chat."""
+        text = self._format_delegated_result(message)
+        if not text or getattr(self, "_shutting_down", False):
+            return
+        try:
+            self.append_history(
+                text, tag="Cerebro", color=AGENTS_INFO["Cerebro"]["color"]
+            )
+        except Exception:
+            pass
+        try:
+            self.write_real_time(text[:240], "success")
+        except Exception:
+            pass
+        if getattr(self, "_live_vision_active", False):
+            try:
+                self._speak_live_response(text[:600])
+            except Exception:
+                pass
+
+    def _format_delegated_result(self, message):
+        """Turn a backend task summary into a human chat sentence.
+
+        Backend summaries are logs for operators (``paper_trading rejected
+        No paper order: confidence …``).  The user should read a decision,
+        not an internal state name.
+        """
+        text = " ".join(str(message or "").split()).strip()
+        match = re.match(
+            r"(paper_trading|bugfix)\s+[a-z_]+\s+(.*)$", text, re.IGNORECASE
+        )
+        detail = match.group(2).strip() if match else text
+        kind = match.group(1).lower() if match else ""
+
+        if kind == "paper_trading":
+            confidence = re.search(
+                r"confidence\s+([0-9]+(?:\.[0-9]+)?)\s+below\s+threshold\s+([0-9]+(?:\.[0-9]+)?)",
+                detail,
+                re.IGNORECASE,
+            )
+            if confidence:
+                return (
+                    "Muse analizó el gráfico, pero no abrió orden paper: "
+                    f"su confianza fue {float(confidence.group(1)):.2f} y el "
+                    f"mínimo es {float(confidence.group(2)):.2f}. "
+                    "No se envió ninguna orden."
+                )
+            hold = re.search(
+                r"No paper order:\s*Muse decided HOLD\.?\s*(.*)",
+                detail,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if hold:
+                rationale = " ".join(hold.group(1).split())
+                message_text = "Muse analizó el gráfico y decidió HOLD, sin entrada."
+                return f"{message_text} {rationale}".strip()
+            confirmed = re.search(
+                r"PAPER ORDER CONFIRMED\s+(\S+)\s*\|?\s*"
+                r"(BUY|SELL)\s+([0-9.]+)\s+([A-Z0-9]+)\s+@\s+([0-9.]+)\s*\|?\s*"
+                r"Stop Loss:\s*([0-9.]+)\s*\|?\s*Take Profit:\s*([0-9.]+)\s*\|?\s*"
+                r"Muse confidence:\s*([0-9.]+)",
+                detail,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if confirmed:
+                (
+                    order_id, side, quantity, symbol, entry,
+                    stop_loss, take_profit, confidence_value,
+                ) = confirmed.groups()
+                return (
+                    f"Muse confirmó una orden paper {order_id}: "
+                    f"{side.upper()} {quantity} {symbol} @ {float(entry):,.2f} · "
+                    f"SL {float(stop_loss):,.2f} · TP {float(take_profit):,.2f} · "
+                    f"confianza {float(confidence_value):.2f}. "
+                    "Modo PAPER ONLY, sin fondos reales."
+                )
+            if re.search(r"\bpaper order\b", detail, re.IGNORECASE):
+                return f"Muse ejecutó una orden paper: {detail}"
+        return detail or text
+
     def _detect_direct_command(self, task):
         """Return a high-confidence local command before the LLM sees it.
 
@@ -5194,6 +6217,10 @@ except:
         if speak:
             self._speak_live_response(message)
         self._finish_local_task()
+        # A deterministic command is complete; do not leave the animated
+        # Thinking... chip above the composer while the answer is already on
+        # screen (the header badge already says Ready).
+        self._hide_thinking()
 
     def send_task(self):
         task = self.input_entry.get().strip()
@@ -5218,7 +6245,7 @@ except:
         if is_programmer:
             # Every programming request shows the calm blue connection state
             # before work begins.
-            self._show_vscode_connecting(2.4)
+            self._show_vscode_connecting(0.6)
 
         # The blue contour is the Live-mode indicator.  It must not appear
         # merely because a typed task is running while Live is off.
@@ -5239,6 +6266,10 @@ except:
                 )
                 return
 
+            # Always refresh the cheap screen context before acting: the
+            # foreground/visible browser decides where web commands open.
+            self._last_screen_context = self._foreground_window_context()
+
             # ── SCREEN QUESTION (vision, never the OS executor) ───────────
             # "¿Qué ves en mi pantalla?" is answered from a fresh capture.
             # Routing it to the reasoning agent made it invent executor
@@ -5250,6 +6281,38 @@ except:
                     lambda m=answer: self._complete_direct_command(m, True),
                 )
                 return
+
+            # ── COMPLEX-TASK DELEGATION (before the open-app shortcut) ───
+            # "Abre TradingView y haz un análisis…" is one complex order, not
+            # just "open the app".  Delegating first is what stops the local
+            # shortcut from swallowing the analysis half.
+            delegation = self._detect_agent_delegation(task)
+            if delegation is not None:
+                payload, delegation_message = delegation
+                if self._delegate_agent_task(payload, delegation_message):
+                    # Persist the delegation as command context: follow-ups
+                    # such as "ejecuta la orden" or "haz el análisis" carry
+                    # no app name and must stay on the trading path instead
+                    # of falling into the document/chat pipeline.
+                    if payload.startswith("!trade"):
+                        self._command_context = {
+                            "last_kind": "trade",
+                            "last_app": "tradingview",
+                            "last_label": "TradingView",
+                            "language": "es",
+                        }
+                    elif payload.startswith("!fix"):
+                        self._command_context = {
+                            "last_kind": "bugfix",
+                            "last_app": "android",
+                            "last_label": "Android",
+                            "language": "es",
+                        }
+                    self.after(
+                        0,
+                        lambda m=delegation_message: self._complete_direct_command(m, True),
+                    )
+                    return
 
             # ── LOCAL SEMANTIC ROUTER (zero network latency) ──────────────
             # Short desktop commands are understood deterministically.  In
@@ -5266,6 +6329,38 @@ except:
                         ),
                     )
                     return
+
+                # Resolve the browser from the screen before opening a web
+                # target.  An explicit "en Edge/Chrome" always wins; otherwise
+                # the visible browser wins over the Windows default, and
+                # Chrome is the fallback for Google services such as Sheets.
+                if command.kind == "open_url" and not command.browser:
+                    effective_browser, _ctx = self._preferred_live_browser()
+                    if effective_browser:
+                        try:
+                            from dataclasses import replace as _replace_intent
+
+                            from _orunex_libs.intent_router import BROWSER_LABELS
+
+                            browser_label = BROWSER_LABELS.get(
+                                effective_browser, effective_browser.title()
+                            )
+                            folded_task = str(task).lower()
+                            wants_tab = (
+                                "pestaña" in folded_task
+                                or "pestana" in folded_task
+                                or "new tab" in folded_task
+                            )
+                            message = (
+                                f"Abriendo {command.label} en una pestaña nueva de {browser_label}."
+                                if wants_tab
+                                else f"Abriendo {command.label} en {browser_label}."
+                            )
+                            command = _replace_intent(
+                                command, browser=effective_browser, message=message
+                            )
+                        except Exception:
+                            pass
 
                 # Start the natural voice before the desktop action finishes.
                 # Chrome can take a few hundred milliseconds to come forward;
@@ -5320,7 +6415,10 @@ except:
                         if command.app == "browser":
                             from _orunex_libs.os_executor import open_url
 
-                            result = str(open_url("https://www.google.com"))
+                            effective_browser, _ctx = self._preferred_live_browser()
+                            result = str(
+                                open_url("https://www.google.com", effective_browser or None)
+                            )
                         elif command.app in {
                             "chrome", "edge", "firefox", "brave", "opera", "vivaldi"
                         }:
@@ -5439,7 +6537,13 @@ except:
             ):
                 # Skip all routing overhead — go straight to cerebro fast path
                 import agents.cerebro as _cerebro  # type: ignore
-                _fast_result = _cerebro.run(task, self.user_name, agent_mode="natural")
+                _fast_result = _cerebro.run(
+                    task,
+                    self.user_name,
+                    agent_mode="natural",
+                    history=self._conversation_history_snapshot(),
+                    trace_callback=self._agent_trace_callback,
+                )
                 _fast_result = _fast_result.replace("[Cerebro]", "").replace("[Orunex]", "").replace("[CEREBRO]", "").strip()
                 self.is_processing = True
                 # Voice-first in Live: queue the spoken reply ahead of the
@@ -5533,6 +6637,8 @@ except:
                                 if hasattr(self, 'current_image_path') else None,
                                 agent_mode="os",
                                 mode=resolved_mode,
+                                history=self._conversation_history_snapshot(),
+                                trace_callback=self._agent_trace_callback,
                             ) # type: ignore
                             if "Error:" in res and "[ SISTEMA ORUNEX: ACCIONES AUTONOMAS]" in res and max_retries > 1:
                                 self.write_real_time(f"Supervisor: execution error detected. Attempting recovery ({curr_attempt}/{max_retries})...", "error")
@@ -5624,9 +6730,26 @@ except:
                     # Phase 115: Sovereign Bridge (EXECUTION) — run BEFORE showing result
                     from _orunex_libs.os_executor import intercept_and_execute # type: ignore
                     exec_results = intercept_and_execute(result)
+
+                    # ``intercept_and_execute`` returns the original text
+                    # unchanged when the response contains no executable tag.
+                    # Older code then formatted that unchanged answer and
+                    # appended it as a blue "sys" message, producing the exact
+                    # duplicate bubble users reported.  Only display executor
+                    # output when the real status header is present, and show
+                    # only the action report after that header.
+                    executed_actions = "[ SISTEMA ORUNEX:" in str(exec_results)
+                    exec_body = ""
+                    if executed_actions:
+                        exec_parts = re.split(
+                            r"\[ SISTEMA ORUNEX:[^\]]+\]\s*",
+                            str(exec_results),
+                            maxsplit=1,
+                        )
+                        exec_body = exec_parts[1] if len(exec_parts) > 1 else ""
                     
                     # V46.0: Show executor output to the user (not just raw tags)
-                    # Extract human-readable lines from exec_results and display them
+                    # Extract human-readable lines from the action report only.
                     def _format_exec_output(raw: str) -> str:
                         """Converts executor log into a clean, human-readable summary."""
                         import re as _re
@@ -5646,7 +6769,9 @@ except:
                             good.append(ln)
                         return "\n".join(good).strip()
                     
-                    exec_display = _format_exec_output(exec_results)
+                    exec_display = (
+                        _format_exec_output(exec_body) if executed_actions else ""
+                    )
                     
                     # Determine what to show: if the result is just one or
                     # more raw machine tags, show the clean executor output
@@ -5675,10 +6800,16 @@ except:
                         speech_text = clean_result
                         self._speak_live_response(speech_text)
                         self.append_history(clean_result, tag=chosen_agent_name, color=agent_data["color"])
-                        # Show executor output if it adds meaningful information
-                        if exec_display and exec_display != result.strip():
+                        # Show only the real action report, never an echo of
+                        # the assistant answer itself.
+                        if exec_display:
                             clean_exec = exec_display.replace("[Cerebro]", "").replace("[Orunex]", "").strip()
-                            self.append_history(clean_exec, tag="sys", color=THEME["success"])
+                            if clean_exec:
+                                self.append_history(
+                                    clean_exec,
+                                    tag="sys",
+                                    color=THEME["success"],
+                                )
                     
                     has_err = any(
                         "❌" in entry or "Error" in entry or "[ERR]" in entry
@@ -5748,8 +6879,31 @@ except:
 
     # --- Phase 35: Callbacks y Servicios en Background ---
     def ui_confirm_dangerous_action(self, text: str) -> bool:
-        """Blocking confirmation for destructive actions (delete, scripts)."""
-        return messagebox.askyesno("Security confirmation", text)
+        """Blocking confirmation for destructive actions (delete, scripts).
+
+        Permission checks run inside worker threads.  Tk dialogs must be
+        created on the main thread, so marshal the dialog through ``after``
+        and wait for the user's answer.
+        """
+        if threading.current_thread() is threading.main_thread():
+            return bool(messagebox.askyesno("Security confirmation", text))
+        completed = threading.Event()
+        answer = {"approved": False}
+
+        def ask():
+            try:
+                answer["approved"] = bool(
+                    messagebox.askyesno("Security confirmation", text)
+                )
+            finally:
+                completed.set()
+
+        try:
+            self.after(0, ask)
+        except Exception:
+            return False
+        completed.wait(timeout=90)
+        return bool(answer.get("approved"))
 
     def handle_simplex_command(self, command_text: str):
         """Callback invoked by simplex_bridge when a remote command arrives."""

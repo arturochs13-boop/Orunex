@@ -51,6 +51,7 @@ class AnimatedGradientText(tk.Canvas):
         bg: str = "#FFFFFF",
         colors: Optional[Sequence[str]] = None,
         glow_color: str = "#8B5CF6",
+        autostart: bool = True,
         **kwargs,
     ):
         self._text = str(text)
@@ -86,7 +87,8 @@ class AnimatedGradientText(tk.Canvas):
             anchor="center",
         )
         self._render_frame(0.0, 0.0)
-        self.start()
+        if autostart:
+            self.start()
 
     @staticmethod
     def _hex_rgb(value: str):
@@ -241,7 +243,14 @@ class AnimatedGradientText(tk.Canvas):
         self._after_id = None
         if not self.winfo_exists():
             return
-        if not self.winfo_ismapped():
+        if (
+            not self.winfo_ismapped()
+            or not self.winfo_viewable()
+            or self.winfo_width() <= 1
+        ):
+            # The window may still be withdrawn behind the splash, or the
+            # empty state may be waiting for its scroll reset.  Do not start
+            # the fade until the headline is actually visible.
             self._schedule(220)
             return
 

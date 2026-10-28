@@ -57,15 +57,61 @@ _SWAPPING_HINTS = (
 _QUESTION_PREFIXES = (
     "como ", "cómo ", "how ", "que es ", "qué es ", "what is ",
     "por que ", "por qué ", "why ", "when ", "cuando ", "cuándo ",
+    "puedes ", "podría ", "podríais ", "será ",
+    "explica ", "explicame ", "explícame ", "describe ", "resume ",
+    "analiza ", "revisa ", "compara ", "evalua ", "diagnostica ",
+    "investiga ", "documenta ", "planifica ", "busca ", "buscar ",
+    "search ",
+)
+
+_CODING_ACTION_HINTS = (
+    "crea", "crear", "haz", "hacer", "genera", "generar", "programa",
+    "programar", "escribe", "escribir", "corrige", "corregir", "arregla",
+    "arreglar", "refactoriza", "refactorizar", "implementa", "implementar",
+    "construye", "construir", "desarrolla", "desarrollar", "edita",
+    "editar", "modifica", "modificar", "testea", "probar", "ejecuta",
+    "run", "fix", "build", "deploy",
+)
+
+_NON_CODING_TOPIC_HINTS = (
+    "plan de negocio", "plan de marketing", "plan estrategico",
+    "plan estratégico", "plan de empresa", "plan de estudio",
+    "plan de estudios", "analisis de mercado", "análisis de mercado",
+    "comparativa de producto", "resumen ejecutivo",
 )
 
 
 def _normalise(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "").strip().lower())
+    value = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    # Remove leading punctuation that may appear in Spanish questions (¿, ?, ¡, !)
+    value = re.sub(r"^[¿?¡!]+\s*", "", value)
+    return value
+
+
+def _has_hint(text: str, hint: str) -> bool:
+    """Whole-word/phrase match; substring matching caused false positives.
+
+    ``"funciona"`` used to match the programming hint ``"funcion"`` and sent
+    ordinary explanations to VS Code.
+    """
+    hint = str(hint or "").strip()
+    if not hint:
+        return False
+    return bool(
+        re.search(rf"(?<!\w){re.escape(hint)}(?!\w)", text, re.IGNORECASE)
+    )
 
 
 def _contains_any(text: str, hints: tuple[str, ...]) -> bool:
-    return any(hint in text for hint in hints)
+    return any(_has_hint(text, hint) for hint in hints)
+
+
+def _starts_with_any(text: str, hints: tuple[str, ...]) -> bool:
+    return any(
+        re.match(rf"^{re.escape(str(hint).strip())}(?!\w)", text, re.IGNORECASE)
+        for hint in hints
+        if str(hint).strip()
+    )
 
 
 def resolve_mode(task: str, selected: str = MODE_DEFAULT) -> str:
@@ -108,12 +154,20 @@ def is_programming_request(task: str, selected: str = MODE_DEFAULT) -> bool:
         return False
     if selected == MODE_PROGRAMMER:
         return True
-    # A request such as "how do I program X" is still a programming question,
-    # but we only open VS Code when the user wants work performed.
-    if text.startswith(_QUESTION_PREFIXES) and not any(
-        verb in text for verb in ("crea", "create", "haz", "make", "genera", "generate", "programa")
+
+    # Explanations, comparisons, reviews and plans are reasoning work.  They
+    # must not launch VS Code or pay the connection animation just because the
+    # text mentions code, a repository or the word "app".
+    if _starts_with_any(text, _QUESTION_PREFIXES) and not _starts_with_any(
+        text, _CODING_ACTION_HINTS
     ):
         return False
+    if _contains_any(text, _NON_CODING_TOPIC_HINTS) and not _contains_any(
+        text, ("codigo", "código", "python", "javascript", "typescript", "api", "repo", "repositorio")
+    ):
+        return False
+    # A request such as "how do I program X" is still a programming question,
+    # but we only open VS Code when the user wants work performed.
     return _contains_any(text, _PROGRAMMER_HINTS)
 
 

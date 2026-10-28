@@ -16,9 +16,21 @@ class PermLevel(Enum):
 # Tags y sus niveles de permiso
 TAG_PERMISSIONS = {
     "SEARCH_WEB": PermLevel.SAFE,
+    "HEADLESS_SEARCH": PermLevel.SAFE,
     "DOC": PermLevel.SAFE,
     "PPTX": PermLevel.SAFE,
     "GUI_SEE": PermLevel.SAFE,
+    "SCREENSHOT": PermLevel.ELEVATED,
+    "YOUTUBE": PermLevel.ELEVATED,
+    "OPEN_URL": PermLevel.ELEVATED,
+    "GUI_NAVIGATE": PermLevel.ELEVATED,
+    "GUI_OPEN": PermLevel.ELEVATED,
+    "GUI_SMART_LAUNCH": PermLevel.ELEVATED,
+    "GUI_CHROME_PROFILE": PermLevel.ELEVATED,
+    "APP_HOOK": PermLevel.ELEVATED,
+    "UIA_CLICK": PermLevel.ELEVATED,
+    "GUI_VISUAL_CLICK": PermLevel.ELEVATED,
+    "GUI_CLICK_TEXT": PermLevel.ELEVATED,
     "MKDIR": PermLevel.ELEVATED,
     "FILE": PermLevel.ELEVATED,
     "EDIT": PermLevel.ELEVATED,
@@ -26,13 +38,25 @@ TAG_PERMISSIONS = {
     "GUI_CLICK": PermLevel.ELEVATED,
     "GUI_TYPE": PermLevel.ELEVATED,
     "GUI_SCROLL": PermLevel.ELEVATED,
+    "GUI_PRESS": PermLevel.ELEVATED,
+    "GUI_SHORTCUT": PermLevel.ELEVATED,
+    "GUI_TAB_CLOSE": PermLevel.ELEVATED,
+    "GUI_TAB_NEXT": PermLevel.ELEVATED,
+    "GUI_TAB_PREV": PermLevel.ELEVATED,
+    "GUI_FULLSCREEN": PermLevel.ELEVATED,
+    "GUI_MAXIMIZE": PermLevel.ELEVATED,
+    "GUI_MINIMIZE": PermLevel.ELEVATED,
     "LOOP": PermLevel.ELEVATED,
     "WATCH": PermLevel.ELEVATED,
-    "DEL": PermLevel.DANGEROUS,
     "CALL": PermLevel.ELEVATED,
     "VSCODE": PermLevel.ELEVATED,
+    "MEMORIZE": PermLevel.ELEVATED,
+    "DEL": PermLevel.DANGEROUS,
     "SOCIAL": PermLevel.DANGEROUS,
-    "SCREENSHOT": PermLevel.SAFE,
+    "WHATSAPP_SEND": PermLevel.DANGEROUS,
+    "SYSTEM_POWER": PermLevel.DANGEROUS,
+    "SELF_EVOLVE": PermLevel.DANGEROUS,
+    "MISSION": PermLevel.DANGEROUS,
 }
 
 AUDIT_LOG_PATH = os.path.abspath(
@@ -60,18 +84,49 @@ def check_permission(tag: str, context: str = "", agent: str = "Sistema") -> boo
 
     log_entry(tag=tag, context=context, agent=agent, level=level.value, status="PENDING")
 
-    strict_perm = os.environ.get("ORUNEX_STRICT_PERM", "0")
-    
-    if level == PermLevel.DANGEROUS and strict_perm == "1":
+    # Dangerous actions are confirmation-gated by default.  Operators can
+    # explicitly opt out with ORUNEX_STRICT_PERM=0 for a trusted headless run.
+    strict_perm = os.environ.get("ORUNEX_STRICT_PERM", "1").strip().lower()
+    strict_enabled = strict_perm not in {"0", "false", "no", "off"}
+
+    if level == PermLevel.DANGEROUS and strict_enabled:
         if _ui_confirm_callback:
-            approved = _ui_confirm_callback(
-                f"[WARN] Accion de Riesgo Detectada\n\n"
-                f"El agente [{agent}] quiere ejecutar:\n[{tag}: {context[:80]}]\n\n"
-                f"Autorizar esta accion?"
-            )
-            if not approved:
-                log_entry(tag=tag, context=context, agent=agent, level=level.value, status="REJECTED_BY_USER")
+            try:
+                approved = _ui_confirm_callback(
+                    f"[WARN] Accion de Riesgo Detectada\n\n"
+                    f"El agente [{agent}] quiere ejecutar:\n"
+                    f"[{tag}: {context[:80]}]\n\n"
+                    f"Autorizar esta accion?"
+                )
+            except Exception as exc:
+                log_entry(
+                    tag=tag,
+                    context=context,
+                    agent=agent,
+                    level=level.value,
+                    status=f"CONFIRMATION_ERROR: {type(exc).__name__}",
+                )
                 return False
+            if not approved:
+                log_entry(
+                    tag=tag,
+                    context=context,
+                    agent=agent,
+                    level=level.value,
+                    status="REJECTED_BY_USER",
+                )
+                return False
+        elif os.environ.get("ORUNEX_ALLOW_DANGEROUS", "0") != "1":
+            # No UI is attached to ask.  Do not silently execute deletion,
+            # shutdown, messaging or social actions in that situation.
+            log_entry(
+                tag=tag,
+                context=context,
+                agent=agent,
+                level=level.value,
+                status="BLOCKED_NO_CONFIRMATION",
+            )
+            return False
 
     log_entry(tag=tag, context=context, agent=agent, level=level.value, status="APPROVED")
     return True

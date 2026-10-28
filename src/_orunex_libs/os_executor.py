@@ -43,6 +43,79 @@ def set_copiloto_context(active: bool = True):
     """Call before running a Copiloto task to suppress Simplex notifications."""
     _copiloto_ctx.active = active
 
+def _emit_activity(kind, message, level="info", **data):
+    """Publish a short activity event without importing the UI."""
+    try:
+        from _orunex_libs import activity_log  # type: ignore
+
+        activity_log.emit(kind, message, level, **data)
+    except Exception:
+        pass
+
+
+def _agent_click(x=None, y=None, **kwargs):
+    """Click like PyAutoGUI and paint a white spark at the real cursor.
+
+    ``x``/``y`` are optional.  When omitted, the click happens at the current
+    cursor position, which preserves the existing move-then-click call sites.
+    """
+    duration = kwargs.pop("duration", 0.18)
+    if x is not None and y is not None:
+        pyautogui.moveTo(int(x), int(y), duration=duration)
+    pyautogui.click(**kwargs)
+    try:
+        pos_x, pos_y = (
+            (int(x), int(y)) if x is not None and y is not None
+            else pyautogui.position()
+        )
+        try:
+            from _orunex_libs import click_fx  # type: ignore
+
+            click_fx.spark_at(pos_x, pos_y)
+        except Exception:
+            pass
+        _emit_activity("click", f"Click ({pos_x}, {pos_y})", "info", x=pos_x, y=pos_y)
+    except Exception:
+        pass
+
+
+def _active_window_command(command):
+    """Maximize/minimize the foreground window, with a hotkey fallback."""
+    command = str(command or "").lower()
+    try:
+        import win32con
+        import win32gui  # type: ignore
+
+        hwnd = win32gui.GetForegroundWindow()
+        if hwnd:
+            if command == "maximize":
+                win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+            elif command == "minimize":
+                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+            else:
+                return False
+            _emit_activity(
+                "display",
+                f"{command.capitalize()}d active window",
+                "success",
+                command=command,
+            )
+            return True
+    except Exception:
+        pass
+    try:
+        pyautogui.hotkey("win", "up" if command == "maximize" else "down")
+        _emit_activity(
+            "display",
+            f"{command.capitalize()}d active window (hotkey)",
+            "success",
+            command=command,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def notify_progress(msg, mtype="info"):
     try:
         print(f"  [ORUNEX PULSE] {msg}")
@@ -162,9 +235,10 @@ def open_url(url, browser=None):
     try:
         args = [exe]
         if requested == "firefox":
-            args.append("-new-window")
-        else:
-            args.append("--new-window")
+            args.append("-new-tab")
+        # Chromium browsers open a new tab in the running instance when no
+        # --new-window flag is passed; forcing a window was slower and broke
+        # "abre una nueva pestaña" requests.
         args.append(raw)
         flags = _hidden_process_kwargs()
         subprocess.Popen(args, **flags)
@@ -254,7 +328,7 @@ def click_text_ocr(target_text):
                 cx = int(data['left'][i]) + int(data['width'][i])//2 # type: ignore
                 cy = int(data['top'][i]) + int(data['height'][i])//2 # type: ignore
                 pyautogui.moveTo(cx, cy, duration=0.3)
-                pyautogui.click()
+                _agent_click()
                 return True
     except:
         pass
@@ -267,6 +341,52 @@ def force_activate_app(app_name):
     """
     return smart_launch(app_name)
 
+def launch_tradingview_desktop():
+    """Launch the installed TradingView Desktop (MSIX) app."""
+    try:
+        local = os.environ.get("LOCALAPPDATA", "")
+        packages = os.path.join(local, "Packages") if local else ""
+        app_id = ""
+        if packages and os.path.isdir(packages):
+            for name in sorted(os.listdir(packages)):
+                if name.startswith("TradingView.Desktop_"):
+                    app_id = f"{name}!TradingView.Desktop"
+                    break
+        if app_id and os.name == "nt":
+            subprocess.Popen(
+                ["explorer.exe", f"shell:AppsFolder\\{app_id}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return "[OK] TradingView Desktop lanzado."
+        return "[WARN] TradingView Desktop no encontrado."
+    except Exception as exc:
+        return f"[ERR] No se pudo lanzar TradingView: {exc}"
+
+
+def launch_android_studio():
+    """Launch Android Studio from its standard Windows locations."""
+    candidates = [
+        r"%ProgramFiles%\Android\Android Studio\bin\studio64.exe",
+        r"%ProgramFiles(x86)%\Android\Android Studio\bin\studio64.exe",
+        r"%LocalAppData%\Programs\Android Studio\bin\studio64.exe",
+        r"%LocalAppData%\JetBrains\Toolbox\apps\AndroidStudio\ch-0\*\bin\studio64.exe",
+    ]
+    import glob
+    import shutil
+
+    for candidate in candidates:
+        for path in glob.glob(os.path.expandvars(candidate)):
+            if os.path.exists(path):
+                subprocess.Popen([path], **_hidden_process_kwargs())
+                return "[OK] Android Studio lanzado."
+    resolved = shutil.which("studio64")
+    if resolved:
+        subprocess.Popen([resolved], **_hidden_process_kwargs())
+        return "[OK] Android Studio lanzado."
+    return "[WARN] Android Studio no encontrado."
+
+
 def smart_launch(app_name):
     """
     UNIVERSAL BOOT V26.0 (Total Win Focus)
@@ -274,9 +394,13 @@ def smart_launch(app_name):
     """
     if not app_name or not str(app_name).strip():
         return "[ERR] Nombre de app no proporcionado."
-        
+
     raw_name = str(app_name).strip().lower()
-    
+    if "tradingview" in raw_name or "trading view" in raw_name:
+        return launch_tradingview_desktop()
+    if "android studio" in raw_name or raw_name == "androidstudio":
+        return launch_android_studio()
+
     # Handle Orunex self-reference safely
     if any(k in raw_name for k in ["orunex", "orunex.exe", "project_orunex", "app_orunex"]):
         try:
@@ -303,6 +427,7 @@ def smart_launch(app_name):
         "bloc de notas": "notepad",
         "calc": "calc",
         "calculadora": "calc",
+        "calculator": "calc",
         "taskmgr": "taskmgr",
         "administrador de tareas": "taskmgr",
         "explorer": "explorer",
@@ -388,13 +513,13 @@ def visual_click(target_name):
     # Try deterministic Win32/UIA bounds first
     bounds_coords = get_active_window_element_bounds(target_name)
     if bounds_coords and "centro" in target_name.lower():
-        pyautogui.click(bounds_coords[0], bounds_coords[1])
+        _agent_click(bounds_coords[0], bounds_coords[1])
         return f"[OK] Clic UIA Grounding en: {target_name} ({bounds_coords})"
 
     from . import vision_engine as ve
     coords = ve.get_ui_coordinates(target_name)
     if coords:
-        pyautogui.click(coords[0], coords[1])
+        _agent_click(coords[0], coords[1])
         return f"[OK] Clic visual en: {target_name} ({coords})"
     return f"[ERR] No se pudo ver {target_name} en pantalla."
 
@@ -412,6 +537,12 @@ def wait_for_ui(target_name, timeout=10):
 def take_screenshot(monitor=1):
     timestamp = int(time.time() * 1000)
     path = os.path.join(TEMP_DIR, f"screen_{monitor}_{timestamp}.png")
+    _emit_activity(
+        "screen_capture",
+        f"Capturing screen (monitor {monitor})…",
+        "info",
+        monitor=monitor,
+    )
     try:
         with mss.mss() as sct:
             if monitor == 0: # All monitors
@@ -422,15 +553,39 @@ def take_screenshot(monitor=1):
             else:
                 m_idx = min(max(1, monitor), len(sct.monitors)-1)
                 sct_img = sct.grab(sct.monitors[m_idx])
-                import mss.tools
-                mss.tools.to_png(sct_img.rgb, sct_img.size, output=path)
+                from mss import tools as mss_tools
+
+                mss_tools.to_png(sct_img.rgb, sct_img.size, output=path)
+        _emit_activity(
+            "screen_capture",
+            f"Screen captured · {os.path.basename(path)}",
+            "success",
+            monitor=monitor,
+            path=path,
+        )
         return path
     except Exception as e:
         # Fallback
-        import pyautogui
-        img = pyautogui.screenshot()
-        img.save(path)
-        return path
+        try:
+            import pyautogui
+            img = pyautogui.screenshot()
+            img.save(path)
+            _emit_activity(
+                "screen_capture",
+                f"Screen captured via fallback · {os.path.basename(path)}",
+                "success",
+                monitor=monitor,
+                path=path,
+            )
+            return path
+        except Exception as fallback_error:
+            _emit_activity(
+                "screen_capture",
+                f"Screen capture failed: {fallback_error}",
+                "error",
+                monitor=monitor,
+            )
+            raise
 
 def write_text(text):
     pyautogui.typewrite(text)
@@ -441,7 +596,7 @@ def press_key(key):
     return f"Tecla '{key}' presionada."
 
 def click_at(x, y):
-    pyautogui.click(x, y)
+    _agent_click(x, y)
     return f"Clic en ({x}, {y})"
 
 def save_file(filename, content):
@@ -467,10 +622,10 @@ def visual_navigate(url):
         from . import vision_engine as ve
         coords = ve.get_ui_coordinates("Address bar")
         if coords:
-            pyautogui.click(coords[0], coords[1])
+            _agent_click(coords[0], coords[1])
         else:
             # Fallback for 1920x1080 maximized: Click at the top center
-            pyautogui.click(400, 50) 
+            _agent_click(400, 50)
             
         time.sleep(0.5)
         
@@ -591,7 +746,7 @@ def chrome_profile_handler():
             coords = pyautogui.locateCenterOnScreen(template_path, confidence=0.7)
             if coords:
                 pyautogui.moveTo(coords[0], coords[1], duration=0.3)
-                pyautogui.click()
+                _agent_click()
                 time.sleep(2.5)
                 return f"[INFO] Clic de Precision Visual en Plantilla ({coords[0]}, {coords[1]})."
     except Exception as e:
@@ -599,7 +754,7 @@ def chrome_profile_handler():
 
     # 3. Fallback Coordinate if all Vision fails
     print("[Profile-Handler] Vision fallo, inyectando clic de rescate en el borde inferior del modulo.")
-    pyautogui.click(650, 800) 
+    _agent_click(650, 800)
     time.sleep(2)
     return "[INFO] Clic de redundancia en area geometrica."
 
@@ -612,6 +767,16 @@ class MissionDispatcher:
             try:
                 # Marcar inicio en entorno
                 os.environ["ORUNEX_MISSION_ACTIVE"] = "true"
+                from . import permissions as perms  # type: ignore
+                if not perms.check_permission(
+                    "MISSION", mission_cmd[:120], agent
+                ):
+                    notify_progress(
+                        "Misión bloqueada: falta confirmación para ejecutar "
+                        "comandos en segundo plano.",
+                        "warning",
+                    )
+                    return
                 notify_progress(f"🚀 Misión Iniciada: {mission_cmd[:40]}...", "info")
                 
                 # Ejecución real en sub-entorno
@@ -750,6 +915,24 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     # Phase 20.0: Vision & Shortcuts (Restored)
     uia_click_matches = re.findall(r"\[UIA_CLICK:\s*(.*?)\]", text, re.IGNORECASE)
     gui_shortcut = re.findall(r"\[GUI_SHORTCUT:\s*(.*?)\]", text)
+    gui_tab_close = re.findall(
+        r"\[GUI_TAB_CLOSE(?::\s*(.*?))?\]", text, re.IGNORECASE
+    )
+    gui_tab_next = re.findall(
+        r"\[GUI_TAB_NEXT(?::\s*(.*?))?\]", text, re.IGNORECASE
+    )
+    gui_tab_prev = re.findall(
+        r"\[GUI_TAB_PREV(?::\s*(.*?))?\]", text, re.IGNORECASE
+    )
+    gui_fullscreen = re.findall(
+        r"\[GUI_FULLSCREEN(?::\s*(.*?))?\]", text, re.IGNORECASE
+    )
+    gui_maximize = re.findall(
+        r"\[GUI_MAXIMIZE(?::\s*(.*?))?\]", text, re.IGNORECASE
+    )
+    gui_minimize = re.findall(
+        r"\[GUI_MINIMIZE(?::\s*(.*?))?\]", text, re.IGNORECASE
+    )
     
     # Phase 12.8: ANTISPAM (Silence Shield V13.0)
     # Strict Policy: Only 1 action allowed per system response to prevent loops.
@@ -941,6 +1124,10 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
             val = _tag_field(v_meta, "value")
             extra = _tag_field(v_meta, "extra")
             line = re.search(r'line\s*=\s*(\d+)', v_meta)
+            if not perms.check_permission(
+                "VSCODE", f"{act or 'open'}:{(val or v_meta)[:80]}"
+            ):
+                continue
 
             res = vscode.execute(
                 action=act or "open",
@@ -954,6 +1141,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     # 1H. SOCIAL
     if social_matches:
         for s_meta in social_matches:
+            if not perms.check_permission("SOCIAL", s_meta[:100]):
+                continue
             net = re.search(r'network\s*=\s*["\']?(.*?)["\']?(?:\s|$)', s_meta)
             act = re.search(r'action\s*=\s*["\']?(.*?)["\']?(?:\s|$)', s_meta)
             txt = re.search(r'text\s*=\s*["\']?(.*?)["\']?(?:\s|$)', s_meta)
@@ -974,6 +1163,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     if screenshot_matches:
         for m_idx in screenshot_matches:
             m = int(m_idx) if m_idx else 1
+            if not perms.check_permission("SCREENSHOT", f"monitor={m}"):
+                continue
             path = take_screenshot(m)
             results.append(f" Captura de pantalla (Monitor {m}):\n[WIDGET: {path}]")
             
@@ -982,6 +1173,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
         try:
             from .headless_web import search_and_summarize # type: ignore
             for query in headless_search_matches:
+                if not perms.check_permission("HEADLESS_SEARCH", query[:100]):
+                    continue
                 res = search_and_summarize(query.strip())
                 results.append(res)
         except Exception as e:
@@ -995,6 +1188,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
             from .app_integrations_manager import get_active_profile  # type: ignore
             
             for query in youtube_matches:
+                if not perms.check_permission("YOUTUBE", query[:100]):
+                    continue
                 # Phase 36.9.1.7: Surgical Symbol Scrubber (Zenith Sovereignty Guard)
                 # Removes ONLY leading/trailing punctuation noise like : ” “ ' " 
                 clean_query = query.strip().strip(":;,. \"'“”«»„")
@@ -1185,6 +1380,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     if open_url_matches:
         for target in open_url_matches:
             target_url, target_browser = _split_open_target(target)
+            if not perms.check_permission("OPEN_URL", target_url[:100]):
+                continue
             results.append(open_url(target_url, target_browser))
             notify_progress(f"Abriendo {target_url} en el navegador.", "success")
 
@@ -1195,6 +1392,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
             profile = get_active_profile()
             for url in chrome_open_matches:
                 url = url.strip()
+                if not perms.check_permission("OPEN_URL", url[:100]):
+                    continue
                 res = open_url_in_chrome(url=url, profile_name=profile)
                 results.append(res)
         except Exception as e:
@@ -1244,6 +1443,10 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     if office_matches:
         from .office_integrator import run_office_mission # type: ignore
         for target, action, payload in office_matches:
+            if not perms.check_permission(
+                "OFFICE_MISSION", f"{target}:{action}:{payload[:60]}"
+            ):
+                continue
             # Check for extended kwargs (path, topic, etc) if available in text or context
             # Simplex Logic: Extract from text if payload contains metadata
             res = run_office_mission(target.strip().lower(), action.strip().lower(), payload)
@@ -1252,6 +1455,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     # Phase 40.4: Sovereign UI Cleaner Logic
     if ui_clean_matches:
         try:
+            if not perms.check_permission("UI_CLEAN", "skip ads"):
+                raise PermissionError("UI_CLEAN not confirmed")
             from .vision_engine import skip_ads_intelligent # type: ignore
             res = skip_ads_intelligent()
             results.append(f"[VISION] Limpiando UI: {res}")
@@ -1262,12 +1467,33 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
         try:
             from .uia_engine import uia_click # type: ignore
             for target in uia_click_matches:
+                if not perms.check_permission("UIA_CLICK", target[:100]):
+                    continue
                 res = uia_click(target.strip())
                 results.append(res)
         except Exception as e:
             results.append(f"[ERR] Falla General en UIA Engine: {e}")
     
-    if gui_see or gui_click_xy or gui_click_txt or gui_type or gui_scroll or gui_press or gui_shortcut or smart_launch_matches or gui_navigate_matches or chrome_profile_matches or visual_click_matches or gui_wait:
+    if (
+        gui_see
+        or gui_click_xy
+        or gui_click_txt
+        or gui_type
+        or gui_scroll
+        or gui_press
+        or gui_shortcut
+        or gui_tab_close
+        or gui_tab_next
+        or gui_tab_prev
+        or gui_fullscreen
+        or gui_maximize
+        or gui_minimize
+        or smart_launch_matches
+        or gui_navigate_matches
+        or chrome_profile_matches
+        or visual_click_matches
+        or gui_wait
+    ):
         try:
             import pyautogui # type: ignore
             import time
@@ -1292,9 +1518,10 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
 
             # --- 2. CHROME PROFILE HANDLER ---
             if chrome_profile_matches:
-                results.append(" [Profile-Handler] Intentando superar selector de Chrome...")
-                results.append(chrome_profile_handler())
-                debug_screenshot("profile_after") # V23.0 Telemetry
+                if perms.check_permission("GUI_CHROME_PROFILE", "chrome profile"):
+                    results.append(" [Profile-Handler] Intentando superar selector de Chrome...")
+                    results.append(chrome_profile_handler())
+                    debug_screenshot("profile_after") # V23.0 Telemetry
 
             # --- 3. GUI WAIT ---
             for target in gui_wait:
@@ -1316,6 +1543,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
             # --- 5. ROBUST NAVIGATION ---
             for url in gui_navigate_matches:
                 target_url, target_browser = _split_open_target(url)
+                if not perms.check_permission("GUI_NAVIGATE", target_url[:100]):
+                    continue
                 results.append(open_url(target_url, target_browser))
                 notify_progress(f"Abriendo {target_url} en el navegador.", "success")
             
@@ -1346,7 +1575,7 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
                 if not perms.check_permission("GUI_CLICK", f"{x},{y}"): continue
                 try:
                     pyautogui.moveTo(int(x), int(y), duration=0.3)
-                    pyautogui.click()
+                    _agent_click()
                     msg = f" GUI_CLICK: ({x}, {y})"
                     results.append(msg)
                     perms.log_result("GUI_CLICK", msg)
@@ -1391,7 +1620,7 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
                             cx = int(data['left'][i]) + int(data['width'][i])//2 # type: ignore
                             cy = int(data['top'][i]) + int(data['height'][i])//2 # type: ignore
                             pyautogui.moveTo(cx, cy, duration=0.3)
-                            pyautogui.click()
+                            _agent_click()
                             msg = f" GUI_CLICK_TEXT: '{click_text}' presionado en ({cx}, {cy})"
                             results.append(msg)
                             perms.log_result("GUI_CLICK_TEXT", msg)
@@ -1465,6 +1694,82 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
                     time.sleep(0.4)
                 except Exception as ke:
                     results.append(f"[ERR] Error ejecutando atajo '{shortcut}': {ke}")
+
+            # --- BROWSER TABS / FULLSCREEN / WINDOW STATE ---
+            for tab_payload in gui_tab_close:
+                if not perms.check_permission("GUI_TAB_CLOSE", tab_payload or "active"):
+                    continue
+                pyautogui.hotkey("ctrl", "w")
+                msg = " [TAB] Pestaña activa cerrada (Ctrl+W)."
+                results.append(msg)
+                perms.log_result("GUI_TAB_CLOSE", msg)
+                _emit_activity("tab", "Closed active tab (Ctrl+W)", "success")
+                time.sleep(0.45)
+
+            for tab_payload in gui_tab_next:
+                if not perms.check_permission("GUI_TAB_NEXT", tab_payload or "next"):
+                    continue
+                pyautogui.hotkey("ctrl", "tab")
+                msg = " [TAB] Pestaña siguiente (Ctrl+Tab)."
+                results.append(msg)
+                perms.log_result("GUI_TAB_NEXT", msg)
+                _emit_activity("tab", "Switched to next tab (Ctrl+Tab)", "success")
+                time.sleep(0.35)
+
+            for tab_payload in gui_tab_prev:
+                if not perms.check_permission("GUI_TAB_PREV", tab_payload or "prev"):
+                    continue
+                pyautogui.hotkey("ctrl", "shift", "tab")
+                msg = " [TAB] Pestaña anterior (Ctrl+Shift+Tab)."
+                results.append(msg)
+                perms.log_result("GUI_TAB_PREV", msg)
+                _emit_activity("tab", "Switched to previous tab (Ctrl+Shift+Tab)", "success")
+                time.sleep(0.35)
+
+            for fullscreen_payload in gui_fullscreen:
+                if not perms.check_permission("GUI_FULLSCREEN", fullscreen_payload or "toggle"):
+                    continue
+                mode = str(fullscreen_payload or "toggle").strip().lower()
+                if mode in ("maximize", "max"):
+                    _active_window_command("maximize")
+                else:
+                    # F11 is the browser fullscreen toggle.  We cannot reliably
+                    # inspect every browser's fullscreen state, so the tag is
+                    # explicitly a toggle and the report says so.
+                    pyautogui.press("f11")
+                    _emit_activity(
+                        "display", "Toggled fullscreen (F11)", "success", mode=mode
+                    )
+                msg = " [DISPLAY] Pantalla completa alternada (F11)."
+                results.append(msg)
+                perms.log_result("GUI_FULLSCREEN", msg)
+                time.sleep(0.55)
+
+            for _ in gui_maximize:
+                if not perms.check_permission("GUI_MAXIMIZE", "active"):
+                    continue
+                ok = _active_window_command("maximize")
+                msg = (
+                    " [DISPLAY] Ventana activa maximizada."
+                    if ok
+                    else "[ERR] No se pudo maximizar la ventana activa."
+                )
+                results.append(msg)
+                perms.log_result("GUI_MAXIMIZE", msg)
+                time.sleep(0.4)
+
+            for _ in gui_minimize:
+                if not perms.check_permission("GUI_MINIMIZE", "active"):
+                    continue
+                ok = _active_window_command("minimize")
+                msg = (
+                    " [DISPLAY] Ventana activa minimizada."
+                    if ok
+                    else "[ERR] No se pudo minimizar la ventana activa."
+                )
+                results.append(msg)
+                perms.log_result("GUI_MINIMIZE", msg)
+                time.sleep(0.4)
 
             # --- UIA CLICK (MATRIX VISION NATIVA) ---
             if uia_click_matches:
@@ -1723,6 +2028,10 @@ Usa las etiquetas del Sistema Operativo para ejecutar la tarea de forma autonoma
     wa_matches = re.findall(r'\[WHATSAPP_SEND:\s*(.*?)\s*\|\s*(.*?)\]', text, re.DOTALL)
     for target, msg in wa_matches:
         try:
+            if not perms.check_permission(
+                "WHATSAPP_SEND", f"{target[:40]}: {msg[:60]}"
+            ):
+                continue
             from .whatsapp_master import send_whatsapp_message
             notify_progress(f"💬 Abriendo WhatsApp Web para enviar mensaje a '{target}'...", "info")
             res = send_whatsapp_message(target.strip(), msg.strip())
@@ -1735,6 +2044,8 @@ Usa las etiquetas del Sistema Operativo para ejecutar la tarea de forma autonoma
     sys_matches = re.findall(r'\[SYSTEM_POWER:\s*(shutdown|restart|apagar|reiniciar)\]', text, re.IGNORECASE)
     for action in sys_matches:
         try:
+            if not perms.check_permission("SYSTEM_POWER", action):
+                continue
             act_lower = action.lower()
             if act_lower in ["shutdown", "apagar"]:
                 notify_progress("⚠️ Apagando el equipo en 5 segundos...", "warning")
@@ -1984,7 +2295,7 @@ Usa las etiquetas del Sistema Operativo para ejecutar la tarea de forma autonoma
         status_header = "\n\n[ SISTEMA ORUNEX: REPORTE DE INCIDENCIAS]\n" if has_errors else "\n\n[ SISTEMA ORUNEX: ACCIONES AUTONOMAS]\n"
         
         # Limpiar etiquetas procesadas para que el usuario no vea el codigo bruto
-        tags_to_clean = r'\[/?(?:FILE|CMD|DOC|PPTX|EDIT|MKDIR|SEARCH_WEB|OPEN_URL|GUI_NAVIGATE|DEL|LOOP|WATCH|CALL|TITLE|MOD|SCHEDULE|GET_WINDOWS_STATE|GUI_SEE|GUI_CLICK|GUI_TYPE|UIA_CLICK|ADDR|SELF_RECONSTRUCT|MISSION|OFFICE_MISSION|UI_CLEAN|VSCODE|PROJECT_PLAN|ARTIFACT):.*?\]'
+        tags_to_clean = r'\[/?(?:FILE|CMD|DOC|PPTX|EDIT|MKDIR|SEARCH_WEB|OPEN_URL|GUI_NAVIGATE|DEL|LOOP|WATCH|CALL|TITLE|MOD|SCHEDULE|GET_WINDOWS_STATE|GUI_SEE|GUI_CLICK|GUI_CLICK_TEXT|GUI_TYPE|GUI_PRESS|GUI_SCROLL|GUI_SHORTCUT|GUI_TAB_CLOSE|GUI_TAB_NEXT|GUI_TAB_PREV|GUI_FULLSCREEN|GUI_MAXIMIZE|GUI_MINIMIZE|UIA_CLICK|ADDR|SELF_RECONSTRUCT|MISSION|OFFICE_MISSION|UI_CLEAN|VSCODE|PROJECT_PLAN|ARTIFACT):.*?\]'
         clean_text = re.sub(tags_to_clean, '', text, flags=re.DOTALL)
         clean_text = re.sub(r'\[/?(?:MISSION|OFFICE_MISSION|UI_CLEAN|VSCODE)\]', '', clean_text, flags=re.DOTALL)
         
