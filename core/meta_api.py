@@ -1,4 +1,4 @@
-"""Unified Meta API client — Muse Spark is the ONLY brain.
+"""Unified Meta API client — Meta Muse is the ONLY brain.
 
 All reasoning, multimodal (vision/text) analysis and decision-making in
 this project goes through this client.  No other LLM, local model or
@@ -7,6 +7,11 @@ heuristic engine is allowed to make semantic decisions:
 * FAISS only stores/recalls vectors (deterministic hashing, not a model).
 * ADB / Simplex / VS Code bridges only transport bytes and commands.
 * Risk arithmetic in paper trading only *enforces* limits Muse must respect.
+
+The primary model is configurable (``META_MODEL``) and defaults to Muse
+Wonder, the stronger long-horizon model.  Muse Spark remains the fast model
+for routing, extraction and screen vision.  Both are Meta Muse models; no
+non-Muse provider is accepted.
 
 Endpoint contract (OpenAI-compatible, same as the production Orunex app):
 ``POST {META_API_BASE}/chat/completions`` with a Bearer ``META_API_KEY``.
@@ -26,7 +31,9 @@ import requests
 from .config import Settings, get_settings
 from .events import BRAIN, META, EventBus
 
-MUSE_SPARK = "muse-spark"
+MUSE_PREFIX = "muse-"
+MUSE_SPARK = "muse-spark"  # kept for compatibility with older callers
+MUSE_WONDER = "muse-wonder"
 
 
 class MetaNotConfigured(RuntimeError):
@@ -55,7 +62,7 @@ def _image_part(image: bytes | str | Path) -> dict[str, Any]:
 
 
 class MetaAPIClient:
-    """Thin, retrying, JSON-aware client for ``muse-spark``."""
+    """Thin, retrying, JSON-aware client for Meta Muse models."""
 
     def __init__(
         self,
@@ -66,10 +73,10 @@ class MetaAPIClient:
         self.settings = settings or get_settings()
         self.bus = bus
         self.session = session or requests.Session()
-        self.model = (self.settings.meta_model or MUSE_SPARK).strip()
-        if not self.model.lower().startswith(MUSE_SPARK):
+        self.model = (self.settings.meta_model or MUSE_WONDER).strip()
+        if not self.model.lower().startswith(MUSE_PREFIX):
             raise MetaNotConfigured(
-                f"Refusing non-Muse model {self.model!r}: this agent is Muse Spark only."
+                f"Refusing non-Muse model {self.model!r}: this agent uses Meta Muse only."
             )
         self.endpoint = self.settings.meta_api_base.rstrip("/")
         if not self.endpoint.endswith("/chat/completions"):
@@ -95,19 +102,36 @@ class MetaAPIClient:
         *,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        reasoning_effort: Optional[str] = None,
+        model: Optional[str] = None,
         retries: int = 3,
     ) -> str:
-        """Send a chat completion and return the assistant text."""
+        """Send a chat completion and return the assistant text.
+
+        ``model`` and ``reasoning_effort`` are optional per-call overrides.
+        The defaults come from :class:`Settings`; this lets the app use Muse
+        Wonder for deep reasoning while keeping Muse Spark for fast routing
+        and vision without creating a second global client.
+        """
         self._require_configured()
+        selected_model = (model or self.model).strip()
+        if not selected_model.lower().startswith(MUSE_PREFIX):
+            raise MetaNotConfigured(
+                f"Refusing non-Muse model {selected_model!r}: this agent uses Meta Muse only."
+            )
         payload: dict[str, Any] = {
-            "model": self.model,
+            "model": selected_model,
             "messages": list(messages),
             "max_tokens": int(max_tokens or self.settings.meta_max_tokens),
             "temperature": float(
                 self.settings.meta_temperature if temperature is None else temperature
             ),
         }
-        effort = (self.settings.meta_reasoning_effort or "").strip().lower()
+        effort = (
+            (reasoning_effort or self.settings.meta_reasoning_effort or "")
+            .strip()
+            .lower()
+        )
         if effort:
             payload["reasoning_effort"] = effort
         headers = {
@@ -116,8 +140,18 @@ class MetaAPIClient:
             "Accept": "application/json",
         }
 
+        def next_effort(value: str) -> str:
+            """Lower effort only after the token budget is already maxed."""
+            if value in {"max", "xhigh", "high"}:
+                return "medium"
+            if value == "medium":
+                return "low"
+            return value
+
         last_error: Optional[Exception] = None
+        budget = int(max_tokens or self.settings.meta_max_tokens)
         for attempt in range(1, max(1, retries) + 1):
+            payload["max_tokens"] = budget
             try:
                 started = time.monotonic()
                 response = self.session.post(
@@ -128,8 +162,87 @@ class MetaAPIClient:
                 )
                 elapsed = time.monotonic() - started
                 if response.status_code == 200:
-                    text = self._extract_text(response.json())
-                    self._log(f"Muse Spark replied in {elapsed:.1f}s ({len(text)} chars)")
+                    data = response.json()
+                    finish = self._finish_reason(data)
+                    try:
+                        text = self._extract_text(data)
+                    except MetaResponseError:
+                        usage = data.get("usage") or {}
+                        reasoning_tokens = 0
+                        try:
+                            reasoning_tokens = int(
+                                ((usage.get("completion_tokens_details") or {}).get(
+                                    "reasoning_tokens"
+                                ))
+                                or 0
+                            )
+                        except (TypeError, ValueError):
+                            pass
+                        if attempt < retries:
+                            # Muse spent the whole budget on hidden reasoning.
+                            # Raise the budget first and keep the requested
+                            # effort: lowering effort on the first retry was
+                            # making answers noticeably shallower.
+                            if budget < 8192:
+                                budget = min(8192, max(budget * 2, 2048))
+                                self._log(
+                                    f"Muse returned no visible text "
+                                    f"(finish={finish or 'unknown'}, "
+                                    f"reasoning_tokens={reasoning_tokens}); "
+                                    f"retrying with max_tokens={budget} "
+                                    f"and reasoning_effort={payload.get('reasoning_effort', 'default')}",
+                                    level="WARN",
+                                )
+                                continue
+                            lowered = next_effort(str(payload.get("reasoning_effort") or ""))
+                            if lowered and lowered != payload.get("reasoning_effort"):
+                                payload["reasoning_effort"] = lowered
+                                self._log(
+                                    f"Muse still returned no visible text at "
+                                    f"max_tokens={budget}; last-resort retry with "
+                                    f"reasoning_effort={lowered}",
+                                    level="WARN",
+                                )
+                                continue
+                        raise
+
+                    # A response can contain text and still be cut off. This
+                    # happened with the trading JSON: the rationale ended in
+                    # the middle of a string, so parse_json_object failed.
+                    # Widen the budget first; only lower effort at the hard
+                    # token ceiling.
+                    if finish == "length":
+                        if attempt < retries:
+                            if budget < 8192:
+                                budget = min(8192, max(budget * 2, 2048))
+                                self._log(
+                                    f"Muse answer truncated (finish=length, "
+                                    f"{len(text)} chars); retrying with "
+                                    f"max_tokens={budget} "
+                                    f"and reasoning_effort={payload.get('reasoning_effort', 'default')}",
+                                    level="WARN",
+                                )
+                                continue
+                            lowered = next_effort(str(payload.get("reasoning_effort") or ""))
+                            if lowered and lowered != payload.get("reasoning_effort"):
+                                payload["reasoning_effort"] = lowered
+                                self._log(
+                                    f"Muse answer still truncated at "
+                                    f"max_tokens={budget}; last-resort retry with "
+                                    f"reasoning_effort={lowered}",
+                                    level="WARN",
+                                )
+                                continue
+                        raise MetaResponseError(
+                            "Muse response was truncated "
+                            f"(finish_reason=length, {len(text)} chars) even "
+                            f"after max_tokens={budget}."
+                        )
+
+                    self._log(
+                        f"Muse {selected_model} replied in {elapsed:.1f}s "
+                        f"({len(text)} chars, effort={payload.get('reasoning_effort', 'default')})"
+                    )
                     return text
                 message = self._error_message(response)
                 if response.status_code in {429, 500, 502, 503, 504} and attempt < retries:
@@ -144,7 +257,8 @@ class MetaAPIClient:
                 if response.status_code in {400, 404} and "model" in message.lower():
                     hint = (
                         " Hint: if your Meta tenant exposes the deployment as "
-                        "'muse-spark-1.3', set META_MODEL=muse-spark-1.3 in .env."
+                        "'muse-wonder-1.0' or 'muse-spark-1.3', set META_MODEL "
+                        "to that exact value in .env."
                     )
                 raise MetaAPIError(
                     f"Meta API HTTP {response.status_code}: {message or 'request failed'}{hint}",
@@ -152,12 +266,23 @@ class MetaAPIClient:
                 )
             except MetaAPIError:
                 raise
+            except MetaResponseError:
+                raise
             except Exception as exc:  # network, timeout, malformed JSON
                 last_error = exc
                 if attempt < retries:
                     time.sleep(min(2.0 * attempt, 8.0))
                     continue
         raise MetaAPIError(f"Meta API unreachable: {type(last_error).__name__}: {last_error}")
+
+    @staticmethod
+    def _finish_reason(data: Any) -> str:
+        try:
+            return str(
+                ((data.get("choices") or [{}])[0] or {}).get("finish_reason") or ""
+            )
+        except Exception:
+            return ""
 
     @staticmethod
     def _extract_text(data: Any) -> str:
@@ -202,6 +327,8 @@ class MetaAPIClient:
         system: str = "",
         images: Optional[Iterable[bytes | str | Path]] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> str:
         """Free-form reasoning (optionally multimodal)."""
         content: Any = prompt
@@ -214,8 +341,16 @@ class MetaAPIClient:
         if system.strip():
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": content})
-        self._log(f"Reasoning with {self.model} (images={len(image_list)})", next_stage=BRAIN)
-        return self.chat(messages, max_tokens=max_tokens)
+        self._log(
+            f"Reasoning with {(model or self.model)} (images={len(image_list)})",
+            next_stage=BRAIN,
+        )
+        return self.chat(
+            messages,
+            max_tokens=max_tokens,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
 
     def reason_json(
         self,
@@ -225,13 +360,22 @@ class MetaAPIClient:
         schema_hint: str,
         images: Optional[Iterable[bytes | str | Path]] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict[str, Any]:
         """Ask Muse for exactly one JSON object and parse it defensively."""
         instruction = (
             f"{user}\n\nRespond with ONE JSON object only, no markdown fences, "
             f"matching this schema:\n{schema_hint}"
         )
-        raw = self.reason_text(instruction, system=system, images=images, max_tokens=max_tokens)
+        raw = self.reason_text(
+            instruction,
+            system=system,
+            images=images,
+            max_tokens=max_tokens,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
         return parse_json_object(raw)
 
     def analyze_image(
@@ -239,13 +383,19 @@ class MetaAPIClient:
         image: bytes | str | Path,
         prompt: str,
         *,
-        system: str = "You are Muse Spark, a precise multimodal UI analyst.",
+        system: str = "You are Muse, a precise multimodal UI analyst.",
+        max_tokens: Optional[int] = 2400,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict[str, Any]:
         """Multimodal diagnosis used by the Android bugfix flow."""
         return self.reason_json(
             system=system,
             user=prompt,
             images=[image],
+            max_tokens=max_tokens,
+            model=model,
+            reasoning_effort=reasoning_effort,
             schema_hint=(
                 '{"has_error": bool, "severity": "none|low|medium|high|critical", '
                 '"screen": str, "component": str, "visible_text": [str], '

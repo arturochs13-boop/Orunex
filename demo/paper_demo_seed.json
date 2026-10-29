@@ -1,0 +1,17 @@
+{
+  "balance": 10000.0,
+  "orders": [
+    {
+      "order_id": "PAPER-BE9F1B7406",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "quantity": 0.024152,
+      "entry": 82808.89,
+      "stop_loss": 82350.0,
+      "take_profit": 83439.0,
+      "status": "OPEN",
+      "opened_at": 1793154310.6238518,
+      "rationale": "Paper only: 1h price above EMA20/50/200 with EMA20 rising, RSI 55.8 in 55-70 trend-following zone, consolidating above EMA20 after pullback. Stop below visible swing low 82393.77, target at visible resistance 83439.00."
+    }
+  ]
+}

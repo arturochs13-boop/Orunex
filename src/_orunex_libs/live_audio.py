@@ -37,7 +37,7 @@ BLOCK_FRAMES = 1_600  # 100 ms
 # 300 ms is the Live-mode sweet spot: commands end immediately, while the
 # release threshold and two-block onset still reject clicks and room spikes.
 SPEECH_THRESHOLD = 0.006
-SILENCE_BLOCKS = 3
+SILENCE_BLOCKS = 2
 MIN_SPEECH_BLOCKS = 2
 PRE_ROLL_BLOCKS = 4
 ONSET_BLOCKS = 2
@@ -60,6 +60,14 @@ def _config_value(key: str) -> str:
 
 
 def _api_key() -> str:
+    try:
+        from _orunex_libs.meta_credentials import get_api_key
+
+        value = get_api_key()
+        if value:
+            return value
+    except Exception:
+        pass
     for name in ("META_API_KEY", "MODEL_API_KEY", "META_AI_API_KEY"):
         value = (os.environ.get(name) or "").strip()
         if value:
@@ -312,19 +320,22 @@ class LiveAudioSession:
                 break
             if stop_event.is_set() or self._muted.is_set():
                 continue
-            try:
-                wav_path = os.path.join(
-                    tempfile.gettempdir(), "orunex_live_last.wav"
-                )
-                with open(wav_path, "wb") as handle:
-                    handle.write(_wav_bytes(pcm))
-                _debug(
-                    "run: saved turn "
-                    f"bytes={len(pcm)} seconds={len(pcm)/2/SAMPLE_RATE:.2f} "
-                    f"muted={self._muted.is_set()}"
-                )
-            except Exception as exc:
-                _debug(f"run: could not save turn: {exc}")
+            if os.environ.get("ORUNEX_LIVE_DEBUG", "").strip().lower() in {
+                "1", "true", "yes", "on"
+            }:
+                try:
+                    wav_path = os.path.join(
+                        tempfile.gettempdir(), "orunex_live_last.wav"
+                    )
+                    with open(wav_path, "wb") as handle:
+                        handle.write(_wav_bytes(pcm))
+                    _debug(
+                        "run: saved turn "
+                        f"bytes={len(pcm)} seconds={len(pcm)/2/SAMPLE_RATE:.2f} "
+                        f"muted={self._muted.is_set()}"
+                    )
+                except Exception as exc:
+                    _debug(f"run: could not save turn: {exc}")
 
             transcript = self._transcribe(pcm, key)
             if (
@@ -494,7 +505,7 @@ class LiveAudioSession:
                 _asr_endpoint(),
                 headers=headers,
                 files=files,
-                timeout=20,
+                timeout=12,
             )
             _debug(
                 f"asr: status={response.status_code} "

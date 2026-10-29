@@ -1,0 +1,17 @@
+{
+  "balance": 10000.0,
+  "orders": [
+    {
+      "order_id": "PAPER-6A683BA2EF",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "quantity": 20.0,
+      "entry": 100.0,
+      "stop_loss": 95.0,
+      "take_profit": 110.0,
+      "status": "OPEN",
+      "opened_at": 1793148163.6989353,
+      "rationale": "debug"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import subprocess
 import pyautogui # type: ignore
 import time
 import os
+import sys
 import tempfile
 import re # type: ignore
 import threading
@@ -27,6 +28,39 @@ def _hidden_process_kwargs():
             "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)
         }
     return {}
+
+
+def _copy_to_clipboard(text):
+    """Put text on the clipboard; returns True when the copy succeeded.
+
+    Used for the TradingView analysis handoff: typing printable characters on
+    a chart is interpreted as symbol search, so the text must not be sent to
+    the chart itself.
+    """
+    value = str(text or "")
+    if not value:
+        return False
+    if os.name == "nt":
+        try:
+            import win32clipboard  # type: ignore
+            import win32con  # type: ignore
+
+            win32clipboard.OpenClipboard()
+            try:
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, value)
+            finally:
+                win32clipboard.CloseClipboard()
+            return True
+        except Exception:
+            pass
+    try:
+        import pyperclip  # type: ignore
+
+        pyperclip.copy(value)
+        return True
+    except Exception:
+        return False
 
 # Thread-local flag: set to True inside Copiloto calls to silence Simplex
 _copiloto_ctx = threading.local()
@@ -54,15 +88,50 @@ def _emit_activity(kind, message, level="info", **data):
 
 
 def _agent_click(x=None, y=None, **kwargs):
-    """Click like PyAutoGUI and paint a white spark at the real cursor.
+    """Click through Orunex's own cursor layer, with PyAutoGUI as fallback.
 
     ``x``/``y`` are optional.  When omitted, the click happens at the current
     cursor position, which preserves the existing move-then-click call sites.
+    The virtual layer animates a human-like path, paints the agent cursor and
+    injects the click without depending on which widget has keyboard focus.
     """
     duration = kwargs.pop("duration", 0.18)
+    button = kwargs.pop("button", kwargs.pop("mouseButton", "left"))
+    clicks = int(kwargs.pop("clicks", 1))
+    try:
+        from _orunex_libs import virtual_input as vin  # type: ignore
+
+        agent = vin.get_input()
+        if not agent.available:
+            raise RuntimeError("virtual input unavailable")
+        if x is not None and y is not None:
+            result = agent.click(
+                int(x),
+                int(y),
+                button=button,
+                clicks=clicks,
+                ensure_focus=False,
+                duration=duration,
+            )
+            pos_x, pos_y = result["x"], result["y"]
+        else:
+            pos_x, pos_y = pyautogui.position()
+            agent.click(
+                int(pos_x),
+                int(pos_y),
+                button=button,
+                clicks=clicks,
+                ensure_focus=False,
+                duration=duration,
+            )
+        return {"ok": True, "x": pos_x, "y": pos_y}
+    except Exception:
+        # The overlay is optional; the task must still run on machines where
+        # Win32 input injection is unavailable.
+        pass
     if x is not None and y is not None:
         pyautogui.moveTo(int(x), int(y), duration=duration)
-    pyautogui.click(**kwargs)
+    pyautogui.click(button=button, clicks=clicks, **kwargs)
     try:
         pos_x, pos_y = (
             (int(x), int(y)) if x is not None and y is not None
@@ -364,6 +433,27 @@ def launch_tradingview_desktop():
         return f"[ERR] No se pudo lanzar TradingView: {exc}"
 
 
+def open_tradingview_chart_url(url: str) -> bool:
+    """Open a chart URL in native TradingView.exe, never in a browser."""
+    try:
+        from bridges.tradingview_bridge import TradingViewBridge  # type: ignore
+
+        exe = TradingViewBridge().find_exe()
+    except Exception:
+        exe = ""
+    if not exe:
+        return False
+    try:
+        subprocess.Popen(
+            [exe, url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except OSError:
+        return False
+
+
 def launch_android_studio():
     """Launch Android Studio from its standard Windows locations."""
     candidates = [
@@ -588,10 +678,26 @@ def take_screenshot(monitor=1):
             raise
 
 def write_text(text):
+    """Type through the agent keyboard (Unicode, layout-independent)."""
+    try:
+        from _orunex_libs import virtual_input as vin  # type: ignore
+
+        agent = vin.get_input()
+        if agent.keyboard.type_text(text):
+            return f"Texto escrito: '{text[:30]}...'"
+    except Exception:
+        pass
     pyautogui.typewrite(text)
     return f"Texto escrito: '{text[:30]}...'"
 
 def press_key(key):
+    try:
+        from _orunex_libs import virtual_input as vin  # type: ignore
+
+        if vin.get_input().keyboard.press(key):
+            return f"Tecla '{key}' presionada."
+    except Exception:
+        pass
     pyautogui.press(key)
     return f"Tecla '{key}' presionada."
 
@@ -1239,6 +1345,150 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
         except Exception as e:
             results.append(f"[ERR] YouTube Expert error: {e}")
 
+    # 2.7 TradingView analysis & entry [TRADINGVIEW: symbol | analysis text]
+    tv_matches = re.findall(r'\[TRADINGVIEW:\s*(.*?)\|\s*(.*?)\]', text, re.IGNORECASE)
+    for tv_pair in tv_matches:
+        try:
+            sym = tv_pair[0].strip() if len(tv_pair) > 0 else ""
+            analysis = tv_pair[1].strip() if len(tv_pair) > 1 else ""
+            if not sym:
+                continue
+            if not perms.check_permission("GUI_NAVIGATE", f"tradingview:{sym}"):
+                results.append(
+                    f"[TRADINGVIEW] Blocked by GUI_NAVIGATE permission for {sym}."
+                )
+                continue
+
+            from _orunex_libs import virtual_input as vin  # type: ignore
+
+            agent = vin.get_input()
+            if not agent.available:
+                results.append(
+                    "[ERR] Orunex virtual input is unavailable on this platform."
+                )
+                continue
+
+            # ----------------------------------------------------------------
+            # 1. Open the native TradingView Desktop app, never Chrome.
+            # ----------------------------------------------------------------
+            opened = False
+            bridge_error = ""
+            try:
+                try:
+                    from bridges.tradingview_bridge import TradingViewBridge  # type: ignore
+                except ImportError:
+                    # ``python src/main.py`` puts ``src`` on sys.path but not
+                    # the repository root, where the bridges package lives.
+                    repo_root = os.path.dirname(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    )
+                    if repo_root not in sys.path:
+                        sys.path.insert(0, repo_root)
+                    from bridges.tradingview_bridge import TradingViewBridge  # type: ignore
+
+                bridge = TradingViewBridge()
+                status = bridge.open_chart(sym, "1h")
+                opened = bool(status.get("opened"))
+            except Exception as exc:
+                bridge_error = str(exc)
+                # Native fallback: launch the MSIX app and hand the chart
+                # link directly to TradingView.exe (never to Chrome).
+                launch_tradingview_desktop()
+                open_tradingview_chart_url(
+                    f"https://www.tradingview.com/chart/?symbol={sym}"
+                )
+
+            # ----------------------------------------------------------------
+            # 2. Wait for TradingView.exe, then maximize with Win32 (not F11).
+            # ----------------------------------------------------------------
+            window = None
+            deadline = time.monotonic() + 15.0
+            while time.monotonic() < deadline:
+                window = vin.find_tradingview_window()
+                if window is not None:
+                    break
+                time.sleep(0.4)
+            if window is None:
+                results.append(
+                    f"[ERR] TradingView native window not found for {sym}. "
+                    f"Bridge: {bridge_error or 'no detail'}"
+                )
+                continue
+
+            agent.attach_window(window)
+            max_result = agent.maximize()
+            focused = agent.focus()
+            time.sleep(0.35)
+            if not focused:
+                focused = agent.focus()
+                time.sleep(0.2)
+
+            # ----------------------------------------------------------------
+            # 3. Wait for the chart tab opened by the bridge.  TradingView
+            #    creates a new tab whose title appears before the candles are
+            #    painted, so title confirmation plus a short paint delay is
+            #    more reliable than typing into the symbol search.  Ctrl+K is
+            #    the tool/function palette in TradingView Desktop (not the
+            #    symbol search) and "/" opens the indicator search.
+            # ----------------------------------------------------------------
+            display_symbol = sym.split(":")[-1].upper().replace("/", "")
+            if display_symbol.endswith(".P"):
+                display_symbol = display_symbol[:-2]
+            symbol_nav = False
+            if focused:
+                deadline = time.monotonic() + 12.0
+                while time.monotonic() < deadline:
+                    current = vin.find_tradingview_window()
+                    title = (current.title if current else "").upper()
+                    if display_symbol and display_symbol in title:
+                        symbol_nav = True
+                        break
+                    time.sleep(0.4)
+                # Let the newly focused tab paint its candles/indicators.
+                time.sleep(4.0)
+                refreshed = vin.find_tradingview_window()
+                if refreshed is not None:
+                    window = refreshed
+                    agent.attach_window(window)
+                    focused = agent.focus()
+                    time.sleep(0.25)
+
+            # ----------------------------------------------------------------
+            # 4. Human-like click on the chart pane.  This is the visible
+            #    proof that Orunex's own cursor is driving the native app.
+            # ----------------------------------------------------------------
+            click_result = agent.click(
+                *agent.client_point(0.52, 0.52),
+                ensure_focus=True,
+                duration=0.32,
+            )
+
+            # ----------------------------------------------------------------
+            # 5. Analysis handoff.  TradingView interprets printable keys on
+            #    the chart as symbol search, so typing the analysis there
+            #    corrupts the chart symbol.  Copy it to the clipboard and
+            #    report it instead; Muse consumes it through the paper task.
+            # ----------------------------------------------------------------
+            analysis_copied = bool(analysis) and _copy_to_clipboard(analysis)
+
+            status_bits = [
+                f"native={'yes' if window else 'no'}",
+                f"opened={'yes' if opened else 'no'}",
+                f"maximized={'yes' if max_result.get('ok') else 'no'}",
+                f"focused={'yes' if focused else 'no'}",
+                f"clicked={'yes' if click_result.get('ok') else 'no'}",
+                f"symbol_nav={'yes' if symbol_nav else 'no'}",
+                f"analysis_copied={'yes' if analysis_copied else 'no'}",
+            ]
+            results.append(
+                f"[TRADINGVIEW] {sym}: " + ", ".join(status_bits)
+                + ". Paper entry remains Muse-gated; no real broker."
+            )
+            if analysis:
+                results.append(f"[TRADINGVIEW] Analysis ready for Muse: {analysis}")
+        except Exception as e:
+            results.append(f"[ERR] TradingView action error: {e}")
+
     if make_ppt_matches:
         try:
             from .ppt_maker import generate_presentation # type: ignore
@@ -1496,7 +1746,6 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     ):
         try:
             import pyautogui # type: ignore
-            import time
             from PIL import Image # type: ignore
             
             # --- 1. SMART LAUNCH (Professional Filter V45.0) ---
@@ -1574,8 +1823,7 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
             for x, y in gui_click_xy:
                 if not perms.check_permission("GUI_CLICK", f"{x},{y}"): continue
                 try:
-                    pyautogui.moveTo(int(x), int(y), duration=0.3)
-                    _agent_click()
+                    _agent_click(int(x), int(y))
                     msg = f" GUI_CLICK: ({x}, {y})"
                     results.append(msg)
                     perms.log_result("GUI_CLICK", msg)
@@ -1619,8 +1867,7 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
                         if target in str(data['text'][i]).lower() and int(data['conf'][i]) > 30: # type: ignore
                             cx = int(data['left'][i]) + int(data['width'][i])//2 # type: ignore
                             cy = int(data['top'][i]) + int(data['height'][i])//2 # type: ignore
-                            pyautogui.moveTo(cx, cy, duration=0.3)
-                            _agent_click()
+                            _agent_click(cx, cy)
                             msg = f" GUI_CLICK_TEXT: '{click_text}' presionado en ({cx}, {cy})"
                             results.append(msg)
                             perms.log_result("GUI_CLICK_TEXT", msg)

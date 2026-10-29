@@ -261,6 +261,14 @@ class SimplexBridge:
     def send_screenshot(self):
         """Toma screenshot y lo envia al telefono, luego lo elimina."""
         try:
+            from _orunex_libs import activity_log  # type: ignore
+
+            activity_log.emit(
+                "screen_capture", "Capturing screen for Simplex…", "info"
+            )
+        except Exception:
+            pass
+        try:
             import pyautogui  # type: ignore
             import tempfile
             img = pyautogui.screenshot()
@@ -272,8 +280,26 @@ class SimplexBridge:
             if os.path.exists(tmp):
                 try: os.remove(tmp)
                 except: pass
+            try:
+                from _orunex_libs import activity_log  # type: ignore
+
+                activity_log.emit(
+                    "screen_capture",
+                    f"Screen captured for Simplex · {img.width}×{img.height}",
+                    "success" if success else "warning",
+                )
+            except Exception:
+                pass
             return success
         except Exception as e:
+            try:
+                from _orunex_libs import activity_log  # type: ignore
+
+                activity_log.emit(
+                    "screen_capture", f"Simplex screen capture failed: {e}", "error"
+                )
+            except Exception:
+                pass
             print(f"DEBUG: Error in send_screenshot: {e}")
             return False
 

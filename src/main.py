@@ -677,6 +677,12 @@ class OrunexApp(ctk.CTk):
         except Exception:
             pass
         try:
+            from _orunex_libs import virtual_input  # type: ignore
+
+            virtual_input.shutdown()
+        except Exception:
+            pass
+        try:
             self.quit()
         except Exception:
             pass

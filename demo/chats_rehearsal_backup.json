@@ -1,0 +1,625 @@
+{
+  "version": 1,
+  "chats": [
+    {
+      "id": "98ec824bc193",
+      "title": "Hola.",
+      "created_at": "2026-10-27T18:54:47",
+      "updated_at": "2026-10-27T19:06:28",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Hola.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:00:17"
+        },
+        {
+          "role": "assistant",
+          "text": "Hola, ¿en qué te ayudo?",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:00:17"
+        },
+        {
+          "role": "user",
+          "text": "Ay, no tiene volumen.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:00:23"
+        },
+        {
+          "role": "assistant",
+          "text": "Para ayudarte bien, dime una cosa: ¿qué es lo que no tiene volumen?\n¿Tu PC Windows no suena nada, o te refieres a un video / reel que generamos?\n\nMientras me respondes, revisa esto en 10 segundos:\n1. Icono de bocina abajo a la derecha — ¿está en mute o en 0?\n2. Clic derecho en la bocina > Mezclador de volumen — ¿la app (Chrome, reproductor) está silenciada?\n3. ¿Estás con audífonos Bluetooth o bocina externa? Prueba desconectarlos.\n\nDime cuál es tu caso y lo revisamos juntos ahora mismo.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:00:30"
+        },
+        {
+          "role": "system",
+          "text": "Para ayudarte bien, dime una cosa: ¿qué es lo que no tiene volumen?\n¿Tu PC Windows no suena nada, o te refieres a un video / reel que generamos?\nMientras me respondes, revisa esto en 10 segundos:\n1. Icono de bocina abajo a la derecha — ¿está en mute o en 0?\n2. Clic derecho en la bocina > Mezclador de volumen — ¿la app (Chrome, reproductor) está silenciada?\n3. ¿Estás con audífonos Bluetooth o bocina externa? Prueba desconectarlos.\nDime cuál es tu caso y lo revisamos juntos ahora mismo.",
+          "tag": "sys",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:00:30"
+        },
+        {
+          "role": "user",
+          "text": "Horonix!",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:00:45"
+        },
+        {
+          "role": "assistant",
+          "text": "I'm Orunex — did you mean me?\n\nHow can I help you today?",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:00:49"
+        },
+        {
+          "role": "user",
+          "text": "Ahora abre YouTube.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:01:04"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo YouTube en Chrome.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:01:04"
+        },
+        {
+          "role": "user",
+          "text": "hornet",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:01:17"
+        },
+        {
+          "role": "assistant",
+          "text": "Noted — you said \"hornet.\"\n\nWhat would you like me to do with that — look up information, or are you referring to something specific?",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:01:21"
+        },
+        {
+          "role": "user",
+          "text": "abre Trading View y dame un análisis..",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:01:21"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo Tradingview.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:01:21"
+        },
+        {
+          "role": "user",
+          "text": "Ahora dame un análisis de mi pantalla de TradingView y dime cómo hacer una entrada.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:01:45"
+        },
+        {
+          "role": "assistant",
+          "text": "Delegando el análisis de BTCUSDT en TradingView al agente. Solo abrirá una orden paper si Muse lo confirma.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:01:45"
+        },
+        {
+          "role": "assistant",
+          "text": "Muse ejecutó una orden paper: No paper order: confidence 0.62 below autonomous threshold 0.70.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:02:00"
+        },
+        {
+          "role": "user",
+          "text": "abre YouTube.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:04:45"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo YouTube en Chrome.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:04:45"
+        },
+        {
+          "role": "user",
+          "text": "or",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:04:57"
+        },
+        {
+          "role": "assistant",
+          "text": "It looks like your message got cut off — I'm Orunex, ready to help.\n\nWhat would you like me to do?",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:04:59"
+        },
+        {
+          "role": "user",
+          "text": "trading view.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:05:00"
+        },
+        {
+          "role": "assistant",
+          "text": "Understood — TradingView.\n\nWhich symbol should I open for you in TradingView Desktop?",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:05:04"
+        },
+        {
+          "role": "user",
+          "text": "en Bitcoin.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:05:13"
+        },
+        {
+          "role": "assistant",
+          "text": "Soy Orunex.\n\n¿En Bitcoin, qué quieres hacer exactamente? ¿Abro el gráfico BTC/USD en TradingView y te hago un análisis técnico?\n\nTodo análisis y ejecución es solo en modo paper/simulated.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:05:18"
+        },
+        {
+          "role": "user",
+          "text": "Sí, hacen análisis técnico y abre el gráfico..",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:05:39"
+        },
+        {
+          "role": "assistant",
+          "text": "Misión bajo análisis.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:05:43"
+        },
+        {
+          "role": "user",
+          "text": "trading view",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:05:59"
+        },
+        {
+          "role": "assistant",
+          "text": "Got it — TradingView.\n\nI'm Orunex, and I can launch TradingView Desktop and open a chart for you.\n\nWhich symbol should I open? e.g. BTCUSD, ETHUSD, EURUSD, AAPL?\n\nIf you want me to execute it automatically, switch to Agent mode and I'll handle it — analysis will be paper/simulated only.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:06:02"
+        },
+        {
+          "role": "user",
+          "text": "open trading view in:",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T19:06:28"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo Tradingview.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T19:06:28"
+        }
+      ]
+    },
+    {
+      "id": "4cf3e2027caa",
+      "title": "Estoy diseñando un sistema para detectar …",
+      "created_at": "2026-10-27T20:50:34",
+      "updated_at": "2026-10-27T20:53:57",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Estoy diseñando un sistema para detectar anomalías en datos de sensores industriales con pocos ejemplos etiquetados. Compara enfoques de aprendizaje autosupervisado, one-class y reglas físicas; dime cuál elegirías para producción, qué supuestos cambian la decisión, cómo evitar falsos positivos y cómo validar el sistema antes de desplegarlo. No inventes resultados.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T20:53:26"
+        },
+        {
+          "role": "assistant",
+          "text": "Para producción, con pocos ejemplos etiquetados, no elegiría un solo enfoque. Mi recomendación inicial sería:\n\n**Reglas físicas como guardarraíles + modelo one-class por régimen de operación como detector principal, y aprendizaje autosupervisado en modo *shadow* como candidato a reemplazarlo.**\n\nEs la opción más auditable, barata de mantener y fácil de validar cuando casi no tienes anomalías confirmadas. El autosupervisado solo lo promovería si demuestra, en tus datos, menos falsas alarmas al mismo nivel de detección.\n\n### 1. Comparación\n\n| Enfoque | Qué necesita | Funciona bien si... | Falla típicamente cuando... | Interpretabilidad |\n|---|---|---|---|---|\n| **Reglas físicas** Umbrales, derivadas, balances de masa/energía, residuos de un observador/Kalman, relaciones entre sensores | Conocimiento del proceso, límites de ingeniería | La física es conocida, hay variables redundantes, necesitas explicar cada alerta | El proceso tiene regímenes no modelados, la física es incompleta, los umbrales se quedan obsoletos | Alta. Puedes decir qué ley o límite se violó |\n| **One-class** Isolation Forest, One-Class SVM, Mahalanobis/Elliptic Envelope, PCA por reconstrucción | Histórico de operación **normal y limpio**, sin necesidad de anomalías etiquetadas | Datos tabulares o ventanas agregadas, dimensionalidad baja/media, proceso relativamente estable | Hay varios regímenes mezclados, deriva, o el histórico \"normal\" ya contiene fallos | Media. Puedes atribuir el score a variables, pero no hay causa física |\n| **Autosupervisado** Autoencoder temporal, forecasting, reconstrucción enmascarada, contrastivo | Mucho histórico sin etiquetar, series multivariantes de alta frecuencia | Hay correlaciones temporales complejas que un one-class simple no captura | Hay poca historia, cambios de régimen frecuentes, o no puedes validar bien el modelo. Es el más caro de entrenar y mantener | Baja-media. El error por sensor ayuda, pero no explica el mecanismo |\n\nHecho clave: one-class y autosupervisado no son opuestos. Un autoencoder entrenado solo con datos normales *es*, en la práctica, un detector one-class. La diferencia es la complejidad que pagas.\n\n### 2. Qué supuestos cambian la decisión\n\nLa recomendación anterior se invierte si cambia alguno de estos:\n\n1. **Física poco conocida o proceso muy complejo** y tienes meses de series multivariantes a alta frecuencia de varias máquinas similares → el autosupervisado pasa a ser candidato principal.\n2. **Proceso simple, bien instrumentado y crítico para seguridad** → dominan las reglas físicas. Ojo: esto no sustituye a los enclavamientos/PLC ni a un sistema instrumentado de seguridad; es detección temprana, no protección.\n3. **Datos de baja dimensionalidad, muestreados por minutos/horas y estables** → one-class solo probablemente basta; el autosupervisado sería sobreingeniería.\n4. **Muchos regímenes de operación** —arranques, cambios de producto, limpieza, mantenimiento— → sin segmentar por régimen, *cualquier* modelo generará falsas alarmas. Este supuesto importa más que el algoritmo.\n5. **Deriva frecuente** por desgaste, estacionalidad o cambios de materia prima → necesitas reentrenamiento gobernado. Si no tienes capacidad para eso, reglas + one-class simple es más sostenible.\n6. **Coste asimétrico:** si un falso negativo puede causar una avería grave, aceptas más falsos positivos y bajas el umbral. Si el coste es fatiga de alarmas en operación, lo contrario. Esto se decide con Operaciones, no con ML.\n\nPara cerrar la decisión necesitaría saber: nº de sensores y frecuencia de muestreo, nº de regímenes conocidos, cuánto histórico normal limpio tienes, y si las anomalías que te importan son fallos de sensor, de proceso o de equipo. Son cosas distintas y no deberían mezclarse en una sola alerta.\n\n### 3. Cómo evitar falsos positivos\n\nEn la práctica, la mayoría no vienen del modelo, sino del contexto. En orden de impacto:\n\n- **Separa calidad de dato de anomalía de proceso.** Sensor congelado, NaN, fuera de rango eléctrico o con saltos imposibles es un fallo de instrumentación, no una anomalía del proceso. Etiquétalo distinto.\n- **Entrena y calibra por régimen.** Detecta el régimen con variables de consigna/estado —idealmente determinista— y ten un modelo y un umbral por régimen. Excluye o trata aparte arranques y transitorios.\n- **Umbral desde un presupuesto de alarmas, no desde un percentil bonito.** Define con Operaciones algo operable, por ejemplo \"máximo X alertas por turno y línea\", y calibra el umbral en una ventana de validación *posterior* al entrenamiento para cumplirlo. Un percentil 99,5 es solo un punto de partida.\n- **Persistencia e histéresis.** No alertes por un pico: exige score alto en k de n ventanas consecutivas, y una banda de salida distinta de la de entrada. Esto elimina gran parte del ruido sin tocar el modelo.\n- **Escalado robusto y sin fuga temporal.** Ajusta medianas/IQR y normalizaciones solo con el periodo de entrenamiento. Nada de ajustar con todo el histórico.\n- **Corroboración multisensor.** Si la física dice que dos variables deben moverse juntas y solo se mueve una, prioriza sospecha de sensor. Sube prioridad cuando varias evidencias independientes coinciden.\n- **Adaptación controlada, nunca automática a ciegas.** Reentrenar con datos recientes sin filtrar acaba aprendiendo el fallo como normal. Versiona datos y modelo, y exige aprobación tras cambios de proceso o mantenimiento mayor.\n- **Bucle de revisión humana.** Cada alerta se cierra como accionable / no accionable / dudosa. Esa es tu fuente real de etiquetas para mejorar.\n\n### 4. Cómo validarlo antes de desplegar\n\nSin inventar métricas: con pocos positivos no puedes afirmar un recall fiable, así que valida por capas.\n\n**a) Definición operativa primero.** Qué cuenta como anomalía, ventana mínima detectable, latencia tolerable y quién adjudica los casos dudosos. Sin esto, cualquier métrica es discutible.\n\n**b) Evaluación offline con cortes temporales.** Entrena con un periodo, valida con uno posterior; nunca con partición aleatoria, porque filtra el futuro. Si hay varias máquinas, deja al menos una fuera para probar generalización. Reporta:\n- Falsas alarmas por día/turno —la métrica que Operaciones entiende—\n- Recall solo sobre incidentes confirmados, indicando cuántos son; con 5 incidentes, ese número es orientativo, no una garantía\n- Latencia de detección y precisión entre las alertas revisadas por expertos\n- Evita fiarte del ROC-AUC con clases muy desbalanceadas; prioriza PR y, sobre todo, recall a un presupuesto fijo de falsas alarmas\n\n**c) Inyección sintética como prueba de cordura, no como validación.** Derivas lentas, picos, sensor congelado, pérdida de correlación entre variables. Sirve para comprobar que el sistema *reacciona* y con qué latencia, no para estimar rendimiento real.\n\n**d) Pruebas de robustez.** Datos perdidos, ruido, un sensor degradado, cambio de régimen no visto. El sistema debe degradar a \"dato no fiable\", no a una avalancha de alertas.\n\n**e) Shadow mode.** El sistema corre en real, registra alertas, pero nadie actúa sobre ellas. Los expertos revisan una muestra —todas las de alta prioridad y un muestreo del resto—. Es la única forma honesta de medir tu tasa real de falsas alarmas antes de molestar a planta.\n\n**f) Piloto limitado y criterios de salida.** Una línea, un turno, con procedimiento de escalado claro. Define de antemano qué te hace abortar: por ejemplo, superar el presupuesto de alarmas acordado o no detectar un incidente confirmado que sí era detectable con los datos disponibles. Monitoriza en continuo la distribución del score y la tasa de alertas; un cambio brusco suele indicar deriva o un problema de datos, no una epidemia de anomalías.\n\n### Arquitectura mínima resultante\n\n`Ingesta → control de calidad de dato → identificación de régimen → reglas físicas (límites duros) + one-class por régimen (score) → fusión y persistencia → gestión de alertas con revisión humana → monitorización de deriva`\n\nLas reglas duras pueden alertar solas. El score del modelo, solo, debería necesitar persistencia. Y el modelo autosupervisado entra como *challenger* en shadow: solo se promueve si, sobre el mismo periodo y con el mismo presupuesto de falsas alarmas, detecta antes o detecta cosas que el sistema simple no vio.\n\nSi me das frecuencia de muestreo, número de sensores, regímenes conocidos y cuánto histórico normal tienes, te concreto algoritmo, tamaño de ventana y estrategia de umbrales para tu caso.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T20:53:57"
+        },
+        {
+          "role": "system",
+          "text": "Para producción, con pocos ejemplos etiquetados, no elegiría un solo enfoque. Mi recomendación inicial sería:\n**Reglas físicas como guardarraíles + modelo one-class por régimen de operación como detector principal, y aprendizaje autosupervisado en modo *shadow* como candidato a reemplazarlo.**\nEs la opción más auditable, barata de mantener y fácil de validar cuando casi no tienes anomalías confirmadas. El autosupervisado solo lo promovería si demuestra, en tus datos, menos falsas alarmas al mismo nivel de detección.\n### 1. Comparación\n| Enfoque | Qué necesita | Funciona bien si... | Falla típicamente cuando... | Interpretabilidad |\n|---|---|---|---|---|\n| **Reglas físicas** Umbrales, derivadas, balances de masa/energía, residuos de un observador/Kalman, relaciones entre sensores | Conocimiento del proceso, límites de ingeniería | La física es conocida, hay variables redundantes, necesitas explicar cada alerta | El proceso tiene regímenes no modelados, la física es incompleta, los umbrales se quedan obsoletos | Alta. Puedes decir qué ley o límite se violó |\n| **One-class** Isolation Forest, One-Class SVM, Mahalanobis/Elliptic Envelope, PCA por reconstrucción | Histórico de operación **normal y limpio**, sin necesidad de anomalías etiquetadas | Datos tabulares o ventanas agregadas, dimensionalidad baja/media, proceso relativamente estable | Hay varios regímenes mezclados, deriva, o el histórico \"normal\" ya contiene fallos | Media. Puedes atribuir el score a variables, pero no hay causa física |\n| **Autosupervisado** Autoencoder temporal, forecasting, reconstrucción enmascarada, contrastivo | Mucho histórico sin etiquetar, series multivariantes de alta frecuencia | Hay correlaciones temporales complejas que un one-class simple no captura | Hay poca historia, cambios de régimen frecuentes, o no puedes validar bien el modelo. Es el más caro de entrenar y mantener | Baja-media. El error por sensor ayuda, pero no explica el mecanismo |\nHecho clave: one-class y autosupervisado no son opuestos. Un autoencoder entrenado solo con datos normales *es*, en la práctica, un detector one-class. La diferencia es la complejidad que pagas.\n### 2. Qué supuestos cambian la decisión\nLa recomendación anterior se invierte si cambia alguno de estos:\n1. **Física poco conocida o proceso muy complejo** y tienes meses de series multivariantes a alta frecuencia de varias máquinas similares → el autosupervisado pasa a ser candidato principal.\n2. **Proceso simple, bien instrumentado y crítico para seguridad** → dominan las reglas físicas. Ojo: esto no sustituye a los enclavamientos/PLC ni a un sistema instrumentado de seguridad; es detección temprana, no protección.\n3. **Datos de baja dimensionalidad, muestreados por minutos/horas y estables** → one-class solo probablemente basta; el autosupervisado sería sobreingeniería.\n4. **Muchos regímenes de operación** —arranques, cambios de producto, limpieza, mantenimiento— → sin segmentar por régimen, *cualquier* modelo generará falsas alarmas. Este supuesto importa más que el algoritmo.\n5. **Deriva frecuente** por desgaste, estacionalidad o cambios de materia prima → necesitas reentrenamiento gobernado. Si no tienes capacidad para eso, reglas + one-class simple es más sostenible.\n6. **Coste asimétrico:** si un falso negativo puede causar una avería grave, aceptas más falsos positivos y bajas el umbral. Si el coste es fatiga de alarmas en operación, lo contrario. Esto se decide con Operaciones, no con ML.\nPara cerrar la decisión necesitaría saber: nº de sensores y frecuencia de muestreo, nº de regímenes conocidos, cuánto histórico normal limpio tienes, y si las anomalías que te importan son fallos de sensor, de proceso o de equipo. Son cosas distintas y no deberían mezclarse en una sola alerta.\n### 3. Cómo evitar falsos positivos\nEn la práctica, la mayoría no vienen del modelo, sino del contexto. En orden de impacto:\n- **Separa calidad de dato de anomalía de proceso.** Sensor congelado, NaN, fuera de rango eléctrico o con saltos imposibles es un fallo de instrumentación, no una anomalía del proceso. Etiquétalo distinto.\n- **Entrena y calibra por régimen.** Detecta el régimen con variables de consigna/estado —idealmente determinista— y ten un modelo y un umbral por régimen. Excluye o trata aparte arranques y transitorios.\n- **Umbral desde un presupuesto de alarmas, no desde un percentil bonito.** Define con Operaciones algo operable, por ejemplo \"máximo X alertas por turno y línea\", y calibra el umbral en una ventana de validación *posterior* al entrenamiento para cumplirlo. Un percentil 99,5 es solo un punto de partida.\n- **Persistencia e histéresis.** No alertes por un pico: exige score alto en k de n ventanas consecutivas, y una banda de salida distinta de la de entrada. Esto elimina gran parte del ruido sin tocar el modelo.\n- **Escalado robusto y sin fuga temporal.** Ajusta medianas/IQR y normalizaciones solo con el periodo de entrenamiento. Nada de ajustar con todo el histórico.\n- **Corroboración multisensor.** Si la física dice que dos variables deben moverse juntas y solo se mueve una, prioriza sospecha de sensor. Sube prioridad cuando varias evidencias independientes coinciden.\n- **Adaptación controlada, nunca automática a ciegas.** Reentrenar con datos recientes sin filtrar acaba aprendiendo el fallo como normal. Versiona datos y modelo, y exige aprobación tras cambios de proceso o mantenimiento mayor.\n- **Bucle de revisión humana.** Cada alerta se cierra como accionable / no accionable / dudosa. Esa es tu fuente real de etiquetas para mejorar.\n### 4. Cómo validarlo antes de desplegar\nSin inventar métricas: con pocos positivos no puedes afirmar un recall fiable, así que valida por capas.\n**a) Definición operativa primero.** Qué cuenta como anomalía, ventana mínima detectable, latencia tolerable y quién adjudica los casos dudosos. Sin esto, cualquier métrica es discutible.\n**b) Evaluación offline con cortes temporales.** Entrena con un periodo, valida con uno posterior; nunca con partición aleatoria, porque filtra el futuro. Si hay varias máquinas, deja al menos una fuera para probar generalización. Reporta:\n- Falsas alarmas por día/turno —la métrica que Operaciones entiende—\n- Recall solo sobre incidentes confirmados, indicando cuántos son; con 5 incidentes, ese número es orientativo, no una garantía\n- Latencia de detección y precisión entre las alertas revisadas por expertos\n- Evita fiarte del ROC-AUC con clases muy desbalanceadas; prioriza PR y, sobre todo, recall a un presupuesto fijo de falsas alarmas\n**c) Inyección sintética como prueba de cordura, no como validación.** Derivas lentas, picos, sensor congelado, pérdida de correlación entre variables. Sirve para comprobar que el sistema *reacciona* y con qué latencia, no para estimar rendimiento real.\n**d) Pruebas de robustez.** Datos perdidos, ruido, un sensor degradado, cambio de régimen no visto. El sistema debe degradar a \"dato no fiable\", no a una avalancha de alertas.\n**e) Shadow mode.** El sistema corre en real, registra alertas, pero nadie actúa sobre ellas. Los expertos revisan una muestra —todas las de alta prioridad y un muestreo del resto—. Es la única forma honesta de medir tu tasa real de falsas alarmas antes de molestar a planta.\n**f) Piloto limitado y criterios de salida.** Una línea, un turno, con procedimiento de escalado claro. Define de antemano qué te hace abortar: por ejemplo, superar el presupuesto de alarmas acordado o no detectar un incidente confirmado que sí era detectable con los datos disponibles. Monitoriza en continuo la distribución del score y la tasa de alertas; un cambio brusco suele indicar deriva o un problema de datos, no una epidemia de anomalías.\n### Arquitectura mínima resultante\n`Ingesta → control de calidad de dato → identificación de régimen → reglas físicas (límites duros) + one-class por régimen (score) → fusión y persistencia → gestión de alertas con revisión humana → monitorización de deriva`\nLas reglas duras pueden alertar solas. El score del modelo, solo, debería necesitar persistencia. Y el modelo autosupervisado entra como *challenger* en shadow: solo se promueve si, sobre el mismo periodo y con el mismo presupuesto de falsas alarmas, detecta antes o detecta cosas que el sistema simple no vio.\nSi me das frecuencia de muestreo, número de sensores, regímenes conocidos y cuánto histórico normal tienes, te concreto algoritmo, tamaño de ventana y estrategia de umbrales para tu caso.",
+          "tag": "sys",
+          "color": "#0668E1",
+          "time": "2026-10-27T20:53:57"
+        }
+      ]
+    },
+    {
+      "id": "f61ad44eab15",
+      "title": "¿Qué ves en mi pantalla ahora mismo? Desc…",
+      "created_at": "2026-10-27T20:57:15",
+      "updated_at": "2026-10-27T20:57:21",
+      "messages": [
+        {
+          "role": "user",
+          "text": "¿Qué ves en mi pantalla ahora mismo? Describe la ventana principal y el texto visible.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T20:57:18"
+        },
+        {
+          "role": "assistant",
+          "text": "Outside the Orunex window only the Windows taskbar is visible at the bottom of the screen. It shows weather as 24°C and clear, a search box labeled Buscar, several app icons, and system indicators. The clock reads 08:57 p.m. on 27/10/2026 and no error dialog is visible.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T20:57:21"
+        }
+      ]
+    },
+    {
+      "id": "52647fa305f6",
+      "title": "¿Qué ves en mi pantalla ahora mismo? Desc…",
+      "created_at": "2026-10-27T21:00:56",
+      "updated_at": "2026-10-27T21:01:02",
+      "messages": [
+        {
+          "role": "user",
+          "text": "¿Qué ves en mi pantalla ahora mismo? Describe la ventana principal y el texto visible.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:00:58"
+        },
+        {
+          "role": "assistant",
+          "text": "The main window in the foreground is Orunex — Desktop Agent showing its Chat interface. The chat area displays the title \"¿Qué ves\", the subtitle \"Ask Orunex anything or describe a task\", and large centered text reading \"At your service\", with an input bar at the bottom containing Attach, a Default dropdown, and a Send button. The left sidebar shows New chat, recent chats and menu options, while the Windows taskbar is visible below.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:01:02"
+        }
+      ]
+    },
+    {
+      "id": "6b47bd0bc1bc",
+      "title": "Abre TradingView",
+      "created_at": "2026-10-27T21:03:45",
+      "updated_at": "2026-10-27T21:03:47",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Abre TradingView",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:03:47"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo Tradingview.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:03:47"
+        }
+      ]
+    },
+    {
+      "id": "5028cb8a701d",
+      "title": "¿Qué ves en mi pantalla ahora mismo? Desc…",
+      "created_at": "2026-10-27T21:04:55",
+      "updated_at": "2026-10-27T21:05:02",
+      "messages": [
+        {
+          "role": "user",
+          "text": "¿Qué ves en mi pantalla ahora mismo? Describe la ventana principal y el texto visible.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:04:57"
+        },
+        {
+          "role": "assistant",
+          "text": "La ventana principal en primer plano es Orunex — Desktop Agent con su panel de Chat. A la izquierda se ve el logo Orunex, el botón New chat y el historial de chats, y en el centro el chat muestra el título “¿Qué ves” y el texto grande “At your service” con un indicador Ready. Abajo hay una caja de escritura con los botones Attach y Send, y debajo se aprecia la barra de tareas de Windows sin ninguna ventana de error visible.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:05:02"
+        }
+      ]
+    },
+    {
+      "id": "c923ef70d215",
+      "title": "Abre TradingView",
+      "created_at": "2026-10-27T21:10:38",
+      "updated_at": "2026-10-27T21:10:40",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Abre TradingView",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:10:40"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo Tradingview.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:10:40"
+        }
+      ]
+    },
+    {
+      "id": "84109bdc3e7b",
+      "title": "Analiza el gráfico y, si hay una oportuni…",
+      "created_at": "2026-10-27T21:10:53",
+      "updated_at": "2026-10-27T21:11:04",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Analiza el gráfico y, si hay una oportunidad, ejecuta la orden paper con SL y TP.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:10:55"
+        },
+        {
+          "role": "assistant",
+          "text": "Delegando la ejecución paper de BTCUSDT en TradingView al agente. Solo abrirá una orden paper si Muse lo confirma.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:10:56"
+        },
+        {
+          "role": "assistant",
+          "text": "Muse ejecutó una orden paper: PAPER ORDER CONFIRMED PAPER-37F0EE71E9 | BUY 0.024152 BTCUSDT @ 82808.89 | Stop Loss: 82350.0 | Take Profit: 83439.0 | Muse confidence: 0.62 (explicit-order threshold 0.60) | Chart: controlled historical demo analyzed by Muse | Mode: PAPER ONLY (no real funds) | Rationale: Paper only. 1h EMA trend up: price above rising EMA20 and above EMA50/EMA200, holding a pullback near EMA20. RSI 14 at 55.8 is in the 55-70 trend-following zone. Stop below visible swing low 82393.77, take profit at visible resistance 83439.00 for a coherent risk-defined entry.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:11:04"
+        }
+      ]
+    },
+    {
+      "id": "ab6b1b415e12",
+      "title": "Abre TradingView",
+      "created_at": "2026-10-27T21:11:55",
+      "updated_at": "2026-10-27T21:11:58",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Abre TradingView",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:11:58"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo Tradingview.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:11:58"
+        }
+      ]
+    },
+    {
+      "id": "fa3eef62bce8",
+      "title": "Analiza el gráfico y, si hay una oportuni…",
+      "created_at": "2026-10-27T21:12:10",
+      "updated_at": "2026-10-27T21:12:21",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Analiza el gráfico y, si hay una oportunidad, ejecuta la orden paper con SL y TP.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:12:13"
+        },
+        {
+          "role": "assistant",
+          "text": "Delegando la ejecución paper de BTCUSDT en TradingView al agente. Solo abrirá una orden paper si Muse lo confirma.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:12:13"
+        },
+        {
+          "role": "assistant",
+          "text": "Muse confirmó una orden paper PAPER-F982E96E96: BUY 0.024152 BTCUSDT @ 82,808.89 · SL 82,393.77 · TP 83,439.00 · confianza 0.62. Modo PAPER ONLY, sin fondos reales.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:12:21"
+        }
+      ]
+    },
+    {
+      "id": "b1ec1752a06a",
+      "title": "En 4 frases, explica por qué una estrateg…",
+      "created_at": "2026-10-27T21:17:23",
+      "updated_at": "2026-10-27T21:17:55",
+      "messages": [
+        {
+          "role": "user",
+          "text": "En 4 frases, explica por qué una estrategia rentable en backtest puede fallar en vivo y qué validarías antes de arriesgar capital. No inventes datos.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:17:26"
+        },
+        {
+          "role": "assistant",
+          "text": "Una estrategia rentable en backtest puede fallar en vivo por sobreajuste a los datos históricos, cambios en el régimen de mercado y costes reales no modelados como spread, slippage, comisiones y latencia. También puede fallar si el backtest contiene sesgos como look-ahead o survivorship bias, o si utiliza datos incompletos o de mala calidad que inflan artificialmente los resultados. Antes de arriesgar capital, validaría su robustez fuera de muestra y mediante walk-forward, su sensibilidad a los parámetros y a mayores costes, y su consistencia en distintos periodos y condiciones de mercado. Finalmente, exigiría una fase de paper trading con la misma ejecución y gestión de riesgo previstas para real, comparando las desviaciones frente al backtest antes de aumentar el tamaño de forma gradual.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:17:55"
+        }
+      ]
+    },
+    {
+      "id": "599cf81c9d43",
+      "title": "Analiza el gráfico y, si hay una oportuni…",
+      "created_at": "2026-10-27T21:18:39",
+      "updated_at": "2026-10-27T21:18:49",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Analiza el gráfico y, si hay una oportunidad, ejecuta la orden paper con SL y TP.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:18:41"
+        },
+        {
+          "role": "assistant",
+          "text": "No tengo un símbolo ni datos visibles del gráfico para analizar sin inventar niveles: ¿qué símbolo y temporalidad quieres que analice en TradingView, por ejemplo BTCUSD en 15m?",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:18:49"
+        }
+      ]
+    },
+    {
+      "id": "485090914d9d",
+      "title": "En 4 frases, explica por qué una estrateg…",
+      "created_at": "2026-10-27T21:25:21",
+      "updated_at": "2026-10-27T21:26:02",
+      "messages": [
+        {
+          "role": "user",
+          "text": "En 4 frases, explica por qué una estrategia rentable en backtest puede fallar en vivo y qué validarías antes de arriesgar capital. No inventes datos.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:25:36"
+        },
+        {
+          "role": "assistant",
+          "text": "Una estrategia rentable en backtest puede fallar en vivo por sobreajuste a los datos históricos, cambios en el régimen de mercado y costes reales no modelados como spread, slippage, comisiones y latencia. También puede fallar si el backtest contiene sesgos como look-ahead o survivorship bias, o si utiliza datos incompletos o de mala calidad que inflan artificialmente los resultados. Antes de arriesgar capital, validaría su robustez fuera de muestra y mediante walk-forward, pruebas de sensibilidad de parámetros y simulación con costes y ejecución realistas. Solo la consideraría viable si mantiene un rendimiento aceptable en paper trading durante un periodo representativo, con drawdown, exposición y riesgo por operación dentro de límites definidos previamente.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:26:02"
+        }
+      ]
+    },
+    {
+      "id": "832926b0ac4a",
+      "title": "Analiza el gráfico y, si hay una oportuni…",
+      "created_at": "2026-10-27T21:29:11",
+      "updated_at": "2026-10-27T21:29:35",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Analiza el gráfico y, si hay una oportunidad, ejecuta la orden paper con SL y TP.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:29:26"
+        },
+        {
+          "role": "assistant",
+          "text": "No tengo un símbolo ni datos visibles del gráfico para analizar sin inventar niveles, y toda ejecución sería solo en modo paper/simulado con SL y TP: ¿qué símbolo y temporalidad quieres que analice en TradingView, por ejemplo BTCUSD en 15m?",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:29:35"
+        }
+      ]
+    },
+    {
+      "id": "0361f77ba6c6",
+      "title": "En 4 frases, explica por qué una estrateg…",
+      "created_at": "2026-10-27T21:32:13",
+      "updated_at": "2026-10-27T21:32:39",
+      "messages": [
+        {
+          "role": "user",
+          "text": "En 4 frases, explica por qué una estrategia rentable en backtest puede fallar en vivo y qué validarías antes de arriesgar capital. No inventes datos.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:32:29"
+        },
+        {
+          "role": "assistant",
+          "text": "Una estrategia rentable en backtest puede fallar en vivo por sobreajuste a los datos históricos y por sesgos como look-ahead o survivorship bias que inflan artificialmente los resultados. También puede fallar ante cambios en el régimen de mercado y costes reales no modelados, como spread, slippage, comisiones y latencia. Antes de arriesgar capital, validaría su robustez fuera de muestra y con walk-forward, así como la sensibilidad de sus parámetros en distintos regímenes y periodos. Finalmente, la probaría en paper trading para verificar ejecución, calidad de datos y gestión del riesgo, y solo arriesgaría capital si los resultados confirman las hipótesis del backtest.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:32:39"
+        }
+      ]
+    },
+    {
+      "id": "a3850b9e42ee",
+      "title": "¿Qué ves en mi pantalla ahora mismo? Desc…",
+      "created_at": "2026-10-27T21:32:43",
+      "updated_at": "2026-10-27T21:33:03",
+      "messages": [
+        {
+          "role": "user",
+          "text": "¿Qué ves en mi pantalla ahora mismo? Describe la ventana principal y el texto visible.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:33:00"
+        },
+        {
+          "role": "assistant",
+          "text": "La ventana principal en primer plano es Orunex — Desktop Agent con su sección de Chat. El chat muestra el título \"¿Qué ves\" y el texto \"Ask Orunex anything or describe a task\", con un pequeño aviso de \"Thinking\" y abajo una caja de entrada con Attach y Send. A la izquierda hay un panel con New chat y el menú, y abajo se ve la barra de tareas de Windows.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:33:03"
+        }
+      ]
+    },
+    {
+      "id": "a6142b25f096",
+      "title": "Abre TradingView",
+      "created_at": "2026-10-27T21:33:07",
+      "updated_at": "2026-10-27T21:33:24",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Abre TradingView",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:33:23"
+        },
+        {
+          "role": "assistant",
+          "text": "Abriendo Tradingview.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:33:24"
+        }
+      ]
+    },
+    {
+      "id": "1c88f97fb4f6",
+      "title": "Analiza el gráfico y, si hay una oportuni…",
+      "created_at": "2026-10-27T21:33:43",
+      "updated_at": "2026-10-27T21:34:12",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Analiza el gráfico y, si hay una oportunidad, ejecuta la orden paper con SL y TP.",
+          "tag": "user",
+          "color": null,
+          "time": "2026-10-27T21:33:59"
+        },
+        {
+          "role": "assistant",
+          "text": "Delegando la ejecución paper de BTCUSDT en TradingView al agente. Solo abrirá una orden paper si Muse lo confirma.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:33:59"
+        },
+        {
+          "role": "assistant",
+          "text": "Muse confirmó una orden paper PAPER-D93F4A1DFD: BUY 0.024152 BTCUSDT @ 82,808.89 · SL 82,350.00 · TP 83,439.00 · confianza 0.62. Modo PAPER ONLY, sin fondos reales.",
+          "tag": "Cerebro",
+          "color": "#0668E1",
+          "time": "2026-10-27T21:34:12"
+        }
+      ]
+    }
+  ]
+}

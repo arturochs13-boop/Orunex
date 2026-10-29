@@ -11,6 +11,7 @@ Muse Spark in :class:`core.agent_brain.AgentBrain`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import queue
 import threading
@@ -59,6 +60,7 @@ class SimplexBridgeListener:
         self._corr_lock = threading.Lock()
         self._connected_at = 0.0
         self._outbox: "queue.SimpleQueue[str]" = queue.SimpleQueue()
+        self._seen_messages: dict[str, float] = {}
 
     # ------------------------------------------------------------------- util
     def _log(self, message: str, *, level: str = "INFO", next_stage: str = "") -> None:
@@ -181,6 +183,19 @@ class SimplexBridgeListener:
                 )
                 if contact:
                     self.contact = str(contact)
+                # Suppress exact WebSocket/reconnect replays of the same chat
+                # item.  A genuinely new message has a different raw item.
+                message_key = hashlib.sha256(
+                    json.dumps(item, sort_keys=True, default=str).encode("utf-8")
+                ).hexdigest()
+                now = time.time()
+                self._seen_messages = {
+                    key: ts for key, ts in self._seen_messages.items()
+                    if now - ts < 300.0
+                }
+                if message_key in self._seen_messages:
+                    continue
+                self._seen_messages[message_key] = now
                 command = RemoteCommand(text=text, contact=str(contact), raw=item)
                 self._log(f"Remote command from {contact or 'contact'}: {text[:80]!r}",
                           next_stage="MuseSpark Brain")

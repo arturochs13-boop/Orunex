@@ -10,6 +10,23 @@ import os
 import webbrowser
 
 
+def _spark_click(x, y):
+    try:
+        from _orunex_libs import click_fx  # type: ignore
+
+        click_fx.spark_at(int(x), int(y))
+    except Exception:
+        pass
+    try:
+        from _orunex_libs import activity_log  # type: ignore
+
+        activity_log.emit(
+            "click", f"Click ({int(x)}, {int(y)})", "info", x=int(x), y=int(y)
+        )
+    except Exception:
+        pass
+
+
 NETWORKS = {
     "twitter":    "https://x.com",
     "x":          "https://x.com",
@@ -48,7 +65,10 @@ def post_twitter(text: str) -> str:
     _open_url("https://x.com/compose/tweet")
     time.sleep(4)
     try:
-        pyautogui.click(pyautogui.size()[0] // 2, pyautogui.size()[1] // 2)
+        click_x = pyautogui.size()[0] // 2
+        click_y = pyautogui.size()[1] // 2
+        pyautogui.click(click_x, click_y)
+        _spark_click(click_x, click_y)
         time.sleep(0.5)
         pyautogui.typewrite(text[:280], interval=0.04)
         return (

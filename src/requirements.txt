@@ -17,4 +17,6 @@ numpy>=1.26,<3
 sounddevice>=0.5.0
 # Human-quality neural voice for Live responses (SAPI remains as fallback)
 edge-tts>=7.0.0
+# Headless web search motor
+ddgs>=9.0.0
 pygame>=2.6.0

@@ -8,6 +8,7 @@ even when no mode was picked.
 
 from __future__ import annotations
 
+import os
 import re
 
 MODE_DEFAULT = "Default"
@@ -114,6 +115,11 @@ def _starts_with_any(text: str, hints: tuple[str, ...]) -> bool:
     )
 
 
+# Aggressive mode: when ORUNEX_AGGRESSIVE=1, relax some guards that block VS Code
+# for analytical questions, allowing the agent to open VS Code more freely.
+_AGGRESSIVE_MODE = os.environ.get("ORUNEX_AGGRESSIVE", "0") in {"1", "true", "yes"}
+
+
 def resolve_mode(task: str, selected: str = MODE_DEFAULT) -> str:
     """Return the mode that should run for this task.
 
@@ -157,8 +163,9 @@ def is_programming_request(task: str, selected: str = MODE_DEFAULT) -> bool:
 
     # Explanations, comparisons, reviews and plans are reasoning work.  They
     # must not launch VS Code or pay the connection animation just because the
-    # text mentions code, a repository or the word "app".
-    if _starts_with_any(text, _QUESTION_PREFIXES) and not _starts_with_any(
+    # text mentions code, a repository or the word "app", unless aggressive mode
+    # is enabled.
+    if not _AGGRESSIVE_MODE and _starts_with_any(text, _QUESTION_PREFIXES) and not _contains_any(
         text, _CODING_ACTION_HINTS
     ):
         return False

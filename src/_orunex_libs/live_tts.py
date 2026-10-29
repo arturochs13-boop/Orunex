@@ -50,7 +50,7 @@ _EDGE_VOICES = {
     "es": "es-MX-JorgeNeural",
     "en": "en-US-AndrewNeural",
 }
-_EDGE_RATE = "+2%"
+_EDGE_RATE = "+6%"
 _CACHE_DIR = os.path.join(tempfile.gettempdir(), "orunex_tts_cache")
 
 _PS_SCRIPT = r"""
@@ -62,12 +62,15 @@ try {
     $candidates = $synth.GetInstalledVoices() | Where-Object {
         $_.Enabled -and $_.VoiceInfo.Culture.Name -like ($culture + '*')
     }
-    # Prefer a male voice so the fallback matches the neural voice.
+    # Only a male voice may be used.  Falling back to the installed female
+    # desktop voices changed Orunex's identity and sounded low quality, so
+    # when no male SAPI voice exists the fallback stays silent and the text
+    # answer still appears in the chat.
     $voice = $candidates | Where-Object {
         $_.VoiceInfo.Gender -eq 'Male'
     } | Select-Object -First 1
-    if (-not $voice) { $voice = $candidates | Select-Object -First 1 }
-    if ($voice) { $synth.SelectVoice($voice.VoiceInfo.Name) }
+    if (-not $voice) { exit 0 }
+    $synth.SelectVoice($voice.VoiceInfo.Name)
 } catch { }
 $text = [Console]::In.ReadToEnd()
 if ($text) { $synth.Speak($text) }
@@ -194,8 +197,9 @@ class LiveSpeaker:
             return False
 
         # Incrementing the generation invalidates any older sentence and
-        # stops its audio immediately.
-        self.stop()
+        # stops its audio immediately.  Never join the old speech thread on
+        # the caller's thread: that was a visible Live-mode stall.
+        self.stop(wait=False)
         with self._lock:
             self._generation += 1
             generation = self._generation
@@ -209,6 +213,14 @@ class LiveSpeaker:
                 self._prepare_audio()
                 if self._is_current(generation):
                     if self._speak_edge_fast(speech, code, generation):
+                        return
+                    # One short retry: the first Edge synthesis after a cold
+                    # start can miss while later ones succeed.  Only after
+                    # that may the (male-only) local fallback run.
+                    time.sleep(0.35)
+                    if self._is_current(generation) and self._speak_edge_fast(
+                        speech, code, generation
+                    ):
                         return
                     if self._is_current(generation):
                         if _debug_enabled():

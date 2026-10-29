@@ -84,6 +84,15 @@ def check_permission(tag: str, context: str = "", agent: str = "Sistema") -> boo
 
     log_entry(tag=tag, context=context, agent=agent, level=level.value, status="PENDING")
 
+    # Aggressive mode: when ORUNEX_AGGRESSIVE=1, allow dangerous actions
+    # without confirmation UI, useful for trusted headless environments.
+    aggressive = os.environ.get("ORUNEX_AGGRESSIVE", "0") in {"1", "true", "yes"}
+
+    if level == PermLevel.DANGEROUS and aggressive:
+        # In aggressive mode, allow dangerous actions without confirmation.
+        log_entry(tag=tag, context=context, agent=agent, level=level.value, status="AGGRESSIVE_ALLOWED")
+        return True
+
     # Dangerous actions are confirmation-gated by default.  Operators can
     # explicitly opt out with ORUNEX_STRICT_PERM=0 for a trusted headless run.
     strict_perm = os.environ.get("ORUNEX_STRICT_PERM", "1").strip().lower()

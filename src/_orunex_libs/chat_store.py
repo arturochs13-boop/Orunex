@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import uuid
 from datetime import datetime
@@ -40,6 +41,51 @@ def new_chat(title: str = "New chat") -> Dict[str, Any]:
     }
 
 
+def _normalise_message_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _is_duplicate_system_echo(
+    previous: Dict[str, Any], message: Dict[str, Any]
+) -> bool:
+    """Detect the old executor echo that duplicated an assistant answer.
+
+    Older builds appended the executor's unchanged answer as a ``sys`` message
+    after the assistant bubble.  That is the blue repeated text users saw.
+    Only a system message with tag ``sys`` immediately following an assistant
+    message is eligible, so genuine notices are preserved.
+    """
+
+    if str(previous.get("role") or "").lower() != "assistant":
+        return False
+    if str(message.get("role") or "").lower() != "system":
+        return False
+    if str(message.get("tag") or "").lower() != "sys":
+        return False
+
+    left = _normalise_message_text(previous.get("text") or previous.get("content"))
+    right = _normalise_message_text(message.get("text") or message.get("content"))
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) / max(len(left), len(right)) < 0.92:
+        return False
+    # The executor's cleaner often removed a prefix or a few markdown chars.
+    return left.startswith(right[:160]) and left.endswith(right[-160:])
+
+
+def _drop_duplicate_system_echoes(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    cleaned: List[Dict[str, Any]] = []
+    for message in messages:
+        if cleaned and _is_duplicate_system_echo(cleaned[-1], message):
+            continue
+        cleaned.append(message)
+    return cleaned
+
+
 def load_chats() -> List[Dict[str, Any]]:
     """Load chats, ignoring corrupt entries instead of breaking the UI."""
     if not os.path.exists(CHATS_PATH):
@@ -62,13 +108,16 @@ def load_chats() -> List[Dict[str, Any]]:
         messages = raw.get("messages", [])
         if not isinstance(messages, list):
             messages = []
+        clean_messages = _drop_duplicate_system_echoes(
+            [m for m in messages if isinstance(m, dict)]
+        )
         chats.append(
             {
                 "id": chat_id,
                 "title": str(raw.get("title") or "New chat"),
                 "created_at": str(raw.get("created_at") or now()),
                 "updated_at": str(raw.get("updated_at") or now()),
-                "messages": [m for m in messages if isinstance(m, dict)],
+                "messages": clean_messages,
             }
         )
     return chats

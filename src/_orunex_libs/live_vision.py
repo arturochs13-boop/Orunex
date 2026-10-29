@@ -81,6 +81,14 @@ def _chat_endpoint(value: str) -> str:
     return endpoint + "/chat/completions"
 
 
+_VISION_EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max"}
+
+
+def _normalise_reasoning_effort(value: object) -> str:
+    effort = str(value or "").strip().lower()
+    return effort if effort in _VISION_EFFORTS else "minimal"
+
+
 class MetaVisionProvider:
     """Meta Model API adapter for screen frames.
 
@@ -99,14 +107,25 @@ class MetaVisionProvider:
         endpoint: Optional[str] = None,
         model: Optional[str] = None,
     ):
-        self.api_key = (
-            api_key
-            or os.environ.get("META_API_KEY")
-            or os.environ.get("MODEL_API_KEY")
-            or os.environ.get("META_AI_API_KEY")
-            or _config_value("meta_api_key")
-            or ""
-        ).strip()
+        self.api_key = str(api_key or "").strip()
+        if not self.api_key:
+            # Single source of truth: process env, .env, Windows user env and
+            # orunex_config.json.  A shortcut-launched pythonw process does not
+            # inherit a key that was only set in a terminal.
+            try:
+                from _orunex_libs.meta_credentials import get_api_key
+
+                self.api_key = get_api_key()
+            except Exception:
+                pass
+        if not self.api_key:
+            self.api_key = (
+                os.environ.get("META_API_KEY")
+                or os.environ.get("MODEL_API_KEY")
+                or os.environ.get("META_AI_API_KEY")
+                or _config_value("meta_api_key")
+                or ""
+            ).strip()
         self.endpoint = _chat_endpoint(
             endpoint
             or os.environ.get("META_AI_ENDPOINT")
@@ -127,6 +146,9 @@ class MetaVisionProvider:
             self.timeout = float(os.environ.get("META_API_TIMEOUT", "120"))
         except (TypeError, ValueError):
             pass
+        self.reasoning_effort = _normalise_reasoning_effort(
+            os.environ.get("META_VISION_REASONING_EFFORT", "minimal")
+        )
         self.last_error = ""
 
     @property
@@ -145,48 +167,74 @@ class MetaVisionProvider:
             "Describe what is happening on this screen. Focus on the active "
             "application, visible errors, and anything the user may need help with."
         ),
+        max_tokens: int = 1024,
+        reasoning_effort: Optional[str] = None,
     ) -> Any:
-        """Send one screen frame to Meta Model API and return its text."""
+        """Send one screen frame to Meta Model API and return its text.
+
+        Muse's hidden reasoning tokens count against ``max_tokens``.  A
+        384-token budget was entirely consumed by reasoning on a normal
+        desktop screenshot, producing an empty answer.  This method enforces a
+        usable floor, retries with a larger budget when Muse stops at
+        ``finish_reason=length``, and retries transient HTTP failures.
+        """
         if not self.configured:
-            raise LiveVisionNotConfigured(
+            self.last_error = (
                 "Meta AI vision is not configured. Set META_API_KEY."
             )
-
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": frame.data_url()},
-                        },
-                    ],
-                }
-            ],
-            "max_tokens": 1024,
-            "temperature": 0.2,
-            "reasoning_effort": os.environ.get(
-                "META_VISION_REASONING_EFFORT", "low"
-            ),
-        }
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
+            raise LiveVisionNotConfigured(self.last_error)
 
         try:
-            import requests
+            budget = max(1024, int(max_tokens))
+        except (TypeError, ValueError):
+            budget = 1024
+        effort = _normalise_reasoning_effort(
+            reasoning_effort or self.reasoning_effort
+        )
+        attempts = 3
+        last_error = ""
 
-            response = requests.post(
-                self.endpoint,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout,
-            )
+        for attempt in range(1, attempts + 1):
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": frame.data_url()},
+                            },
+                        ],
+                    }
+                ],
+                "max_tokens": budget,
+                "temperature": 0.2,
+                "reasoning_effort": effort,
+            }
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+
+            try:
+                import requests
+
+                response = requests.post(
+                    self.endpoint,
+                    headers=headers,
+                    json=payload,
+                    timeout=(10.0, max(15.0, float(self.timeout))),
+                )
+            except Exception as exc:
+                last_error = f"connection failed: {exc}"
+                if attempt < attempts:
+                    time.sleep(min(0.8 * (2 ** (attempt - 1)), 3.0))
+                    continue
+                break
+
             if response.status_code != 200:
                 message = ""
                 try:
@@ -199,12 +247,31 @@ class MetaVisionProvider:
                 except Exception:
                     pass
                 if not message:
-                    message = response.text.strip()[:300]
-                raise RuntimeError(
-                    f"Meta vision HTTP {response.status_code}: {message or 'request failed'}"
+                    try:
+                        message = response.text.strip()[:300]
+                    except Exception:
+                        message = ""
+                last_error = (
+                    f"Meta vision HTTP {response.status_code}: "
+                    f"{message or 'request failed'}"
                 )
+                if (
+                    response.status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+                    and attempt < attempts
+                ):
+                    time.sleep(min(0.8 * (2 ** (attempt - 1)), 3.0))
+                    continue
+                break
 
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError:
+                last_error = "Meta vision returned invalid JSON."
+                if attempt < attempts:
+                    time.sleep(0.8)
+                    continue
+                break
+
             choices = data.get("choices") or []
             message = (choices[0].get("message") or {}) if choices else {}
             content = message.get("content")
@@ -214,18 +281,44 @@ class MetaVisionProvider:
                     for block in content
                     if isinstance(block, dict) and block.get("text")
                 ).strip()
-            if not isinstance(content, str) or not content.strip():
-                finish = (choices[0].get("finish_reason") or "") if choices else ""
-                raise RuntimeError(
-                    "Meta vision returned no final content"
-                    + (f" (finish_reason={finish})." if finish else ".")
+            if isinstance(content, str) and content.strip():
+                self.last_error = ""
+                return content.strip()
+
+            finish = (choices[0].get("finish_reason") or "") if choices else ""
+            usage = data.get("usage") or {}
+            reasoning_tokens = 0
+            try:
+                reasoning_tokens = int(
+                    ((usage.get("completion_tokens_details") or {}).get(
+                        "reasoning_tokens"
+                    ))
+                    or 0
                 )
-            return content.strip()
-        except LiveVisionNotConfigured:
-            raise
-        except Exception as exc:
-            self.last_error = str(exc)
-            raise RuntimeError(f"Meta vision analysis failed: {exc}") from exc
+            except (TypeError, ValueError):
+                pass
+            last_error = (
+                "Meta vision returned no final content"
+                + (f" (finish_reason={finish})" if finish else "")
+                + (
+                    f" after {reasoning_tokens} reasoning tokens"
+                    if reasoning_tokens
+                    else ""
+                )
+                + "."
+            )
+
+            if attempt < attempts:
+                # Guarantee room for a final answer even when the screenshot
+                # is complex and Muse reasons at length.
+                budget = min(8192, max(budget * 2, 1536))
+                effort = "minimal" if effort != "minimal" else effort
+                time.sleep(0.4)
+                continue
+            break
+
+        self.last_error = last_error or "Meta vision analysis failed."
+        raise RuntimeError(f"Meta vision analysis failed: {self.last_error}")
 
 
 class LiveVisionSession:
@@ -289,10 +382,24 @@ class LiveVisionSession:
         if on_analysis is not None:
             self.on_analysis = on_analysis
 
+    def _emit_activity(self, kind, message, level="info", **data):
+        try:
+            from _orunex_libs import activity_log  # type: ignore
+
+            activity_log.emit(kind, message, level, **data)
+        except Exception:
+            pass
+
     def start(self):
         if self._active:
             return
         self._active = True
+        self._emit_activity(
+            "screen_capture",
+            "Live vision capture started",
+            "info",
+            monitor=self.monitor,
+        )
         stop_event = threading.Event()
         self._stop_event = stop_event
         self._thread = threading.Thread(
@@ -313,6 +420,7 @@ class LiveVisionSession:
             thread.join(timeout=2.0)
         if was_active:
             self._emit_status("Live vision off.", "info")
+            self._emit_activity("screen_capture", "Live vision capture stopped", "info")
 
     def _run(self, stop_event: threading.Event):
         if mss is None:
@@ -320,6 +428,11 @@ class LiveVisionSession:
             self._active = False
             self._emit_status(
                 "Live vision unavailable: the mss package is not installed.",
+                "error",
+            )
+            self._emit_activity(
+                "screen_capture",
+                "Live vision unavailable: mss is not installed",
                 "error",
             )
             return
@@ -352,11 +465,21 @@ class LiveVisionSession:
                 cooled = (now - self._last_event_at) >= self.change_cooldown
                 if changed and cooled:
                     self._last_event_at = now
+                    self._emit_activity(
+                        "screen_capture",
+                        f"Screen changed (Δ{score:.1f}) · analyzing frame",
+                        "info",
+                        monitor=frame.monitor,
+                        change_score=round(score, 2),
+                    )
                     self._emit_event(frame)
                     self._analyze(frame)
             except Exception as exc:
                 self._last_error = str(exc)
                 self._emit_status(f"Live vision error: {exc}", "error")
+                self._emit_activity(
+                    "screen_capture", f"Live vision error: {exc}", "error"
+                )
                 stop_event.wait(1.5)
                 continue
 
@@ -382,6 +505,12 @@ class LiveVisionSession:
         analyzer = self.analyzer
         if analyzer is None:
             return
+        self._emit_activity(
+            "screen_capture",
+            "Analyzing captured frame with vision model…",
+            "info",
+            monitor=frame.monitor,
+        )
         try:
             result = analyzer(frame)
             if result is not None and self.on_analysis is not None:

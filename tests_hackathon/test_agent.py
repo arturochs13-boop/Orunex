@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -9,6 +10,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 os.environ.setdefault("META_API_KEY", "test-key")
 
 from bridges.vscode_bridge import PatchError, VSCodeBridge  # noqa: E402
@@ -36,8 +38,13 @@ def make_settings(root: Path, **overrides) -> Settings:
 class FakeResponse:
     status_code = 200
 
+    def __init__(self, data=None):
+        self._data = data or {
+            "choices": [{"message": {"content": "hola desde muse"}}]
+        }
+
     def json(self):
-        return {"choices": [{"message": {"content": "hola desde muse"}}]}
+        return self._data
 
 
 class FakeSession:
@@ -47,6 +54,20 @@ class FakeSession:
     def post(self, url, headers=None, json=None, timeout=None):
         self.payload = json
         return FakeResponse()
+
+
+class ScriptedSession:
+    """Returns scripted responses and records every request payload."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.payloads = []
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.payloads.append(dict(json or {}))
+        if not self.responses:
+            raise AssertionError("unexpected extra Meta request")
+        return self.responses.pop(0)
 
 
 class MetaApiTests(unittest.TestCase):
@@ -67,6 +88,103 @@ class MetaApiTests(unittest.TestCase):
             text = client.chat([{"role": "user", "content": "hola"}])
             self.assertEqual(text, "hola desde muse")
             self.assertEqual(session.payload["model"], "muse-spark")
+
+    def test_chat_uses_wonder_budget_and_high_effort(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session = FakeSession()
+            settings = make_settings(
+                Path(tmp),
+                meta_model="muse-wonder-1.0",
+                meta_max_tokens=16384,
+                meta_reasoning_effort="high",
+            )
+            client = MetaAPIClient(settings, session=session)
+            client.chat([{"role": "user", "content": "razona"}])
+            self.assertEqual(session.payload["model"], "muse-wonder-1.0")
+            self.assertEqual(session.payload["max_tokens"], 16384)
+            self.assertEqual(session.payload["reasoning_effort"], "high")
+
+    def test_per_call_fast_model_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session = FakeSession()
+            settings = make_settings(
+                Path(tmp),
+                meta_model="muse-wonder-1.0",
+                meta_max_tokens=16384,
+                meta_reasoning_effort="high",
+                meta_fast_model="muse-spark-1.3",
+                meta_fast_max_tokens=2048,
+                meta_fast_reasoning_effort="low",
+            )
+            client = MetaAPIClient(settings, session=session)
+            client.chat(
+                [{"role": "user", "content": "clasifica"}],
+                model=settings.meta_fast_model,
+                max_tokens=settings.meta_fast_max_tokens,
+                reasoning_effort=settings.meta_fast_reasoning_effort,
+            )
+            self.assertEqual(session.payload["model"], "muse-spark-1.3")
+            self.assertEqual(session.payload["max_tokens"], 2048)
+            self.assertEqual(session.payload["reasoning_effort"], "low")
+
+    def test_truncated_retry_keeps_requested_effort(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session = ScriptedSession(
+                [
+                    FakeResponse(
+                        {
+                            "choices": [
+                                {
+                                    "message": {"content": "partial answer"},
+                                    "finish_reason": "length",
+                                }
+                            ]
+                        }
+                    ),
+                    FakeResponse(
+                        {
+                            "choices": [
+                                {
+                                    "message": {"content": "complete answer"},
+                                    "finish_reason": "stop",
+                                }
+                            ]
+                        }
+                    ),
+                ]
+            )
+            settings = make_settings(
+                Path(tmp),
+                meta_model="muse-wonder-1.0",
+                meta_max_tokens=4096,
+                meta_reasoning_effort="high",
+            )
+            client = MetaAPIClient(settings, session=session)
+            text = client.chat(
+                [{"role": "user", "content": "razona"}],
+                max_tokens=2048,
+                retries=2,
+            )
+            self.assertEqual(text, "complete answer")
+            self.assertEqual(len(session.payloads), 2)
+            self.assertEqual(session.payloads[0]["max_tokens"], 2048)
+            self.assertEqual(session.payloads[0]["reasoning_effort"], "high")
+            self.assertEqual(session.payloads[1]["max_tokens"], 4096)
+            self.assertEqual(session.payloads[1]["reasoning_effort"], "high")
+
+
+class CerebroOutputTests(unittest.TestCase):
+    def test_reasoning_cleanup_preserves_markdown_and_drops_action_tags(self):
+        from agents.cerebro import clean_reasoning_output
+
+        cleaned = clean_reasoning_output(
+            "**HOLD** porque el setup no alcanza.\n"
+            "[GUI_NAVIGATE: https://example.com]\n"
+            "La invalidación es perder 82.300."
+        )
+        self.assertIn("**HOLD**", cleaned)
+        self.assertNotIn("GUI_NAVIGATE", cleaned)
+        self.assertIn("invalidación", cleaned)
 
 
 class FaissAndPatchTests(unittest.TestCase):
@@ -233,6 +351,105 @@ class PaperTradingTests(unittest.TestCase):
             self.assertEqual(result.state.value, "completed", result.error)
             self.assertIn("PAPER ORDER CONFIRMED", result.summary)
             self.assertTrue(notes and "PAPER ORDER CONFIRMED" in notes[0])
+
+    def test_explicit_order_uses_explicit_threshold(self):
+        class TradeMeta:
+            def reason_json(self, **kwargs):
+                return {
+                    "action": "BUY", "symbol": "BTCUSDT", "entry": 100,
+                    "stop_loss": 95, "take_profit": 110, "confidence": 0.62,
+                    "rationale": "Valid paper setup", "strategy_refs": [],
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(
+                root,
+                min_trade_confidence=0.70,
+                explicit_trade_min_confidence=0.60,
+            )
+            engine = PaperTradingEngine(settings)
+            task = TradingTask(
+                meta=TradeMeta(), memory=FAISSMemory(settings=settings),
+                engine=engine, settings=settings,
+            )
+            alert = {
+                "symbol": "BTCUSDT",
+                "execute": True,
+                "note": (
+                    "Delegated order: execute the best paper entry. "
+                    "Paper only, no real broker."
+                ),
+            }
+            result = task.run(TradingRequest(raw=json.dumps(alert)))
+            self.assertEqual(result.state.value, "completed", result.error)
+            self.assertIn("PAPER ORDER CONFIRMED", result.summary)
+            self.assertTrue(result.data.get("explicit_execution"))
+            self.assertAlmostEqual(result.data.get("confidence_threshold"), 0.60)
+            self.assertEqual(len(engine.snapshot()["open_orders"]), 1)
+
+    def test_analysis_below_autonomous_threshold_does_not_trade(self):
+        class TradeMeta:
+            def reason_json(self, **kwargs):
+                return {
+                    "action": "BUY", "symbol": "BTCUSDT", "entry": 100,
+                    "stop_loss": 95, "take_profit": 110, "confidence": 0.62,
+                    "rationale": "Valid but not autonomous-grade", "strategy_refs": [],
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(
+                root,
+                min_trade_confidence=0.70,
+                explicit_trade_min_confidence=0.60,
+            )
+            engine = PaperTradingEngine(settings)
+            task = TradingTask(
+                meta=TradeMeta(), memory=FAISSMemory(settings=settings),
+                engine=engine, settings=settings,
+            )
+            alert = {
+                "symbol": "BTCUSDT",
+                "execute": False,
+                "note": "Delegated analysis: propose a paper setup. Paper only.",
+            }
+            result = task.run(TradingRequest(raw=json.dumps(alert)))
+            self.assertEqual(result.state.value, "rejected", result.error)
+            self.assertIn("autonomous threshold 0.70", result.summary)
+            self.assertFalse(result.data.get("explicit_execution"))
+            self.assertEqual(engine.snapshot()["open_orders"], [])
+
+    def test_explicit_order_still_rejects_weak_confidence(self):
+        class TradeMeta:
+            def reason_json(self, **kwargs):
+                return {
+                    "action": "BUY", "symbol": "BTCUSDT", "entry": 100,
+                    "stop_loss": 95, "take_profit": 110, "confidence": 0.55,
+                    "rationale": "Weak setup", "strategy_refs": [],
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = make_settings(
+                root,
+                min_trade_confidence=0.70,
+                explicit_trade_min_confidence=0.60,
+            )
+            engine = PaperTradingEngine(settings)
+            task = TradingTask(
+                meta=TradeMeta(), memory=FAISSMemory(settings=settings),
+                engine=engine, settings=settings,
+            )
+            alert = {
+                "symbol": "BTCUSDT",
+                "execute": True,
+                "note": "Delegated order: execute the best paper entry.",
+            }
+            result = task.run(TradingRequest(raw=json.dumps(alert)))
+            self.assertEqual(result.state.value, "rejected", result.error)
+            self.assertIn("explicit-order threshold 0.60", result.summary)
+            self.assertEqual(engine.snapshot()["open_orders"], [])
 
 
 if __name__ == "__main__":

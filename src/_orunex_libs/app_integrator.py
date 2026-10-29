@@ -130,7 +130,48 @@ def hook_browser(app_key: str, action: str, value: str) -> str:
         return f" Buscar en pagina: '{value}'"
     elif action == "close_tab":
         pyautogui.hotkey('ctrl', 'w')
-        return f"[ERR] Pestana cerrada."
+        try:
+            from _orunex_libs import activity_log  # type: ignore
+
+            activity_log.emit("tab", "Closed active tab (Ctrl+W)", "success")
+        except Exception:
+            pass
+        return "[OK] Pestana cerrada."
+    elif action in ("fullscreen", "toggle_fullscreen"):
+        pyautogui.press('f11')
+        try:
+            from _orunex_libs import activity_log  # type: ignore
+
+            activity_log.emit("display", "Toggled fullscreen (F11)", "success")
+        except Exception:
+            pass
+        return "[OK] Pantalla completa alternada."
+    elif action in ("maximize", "minimize"):
+        try:
+            import win32con
+            import win32gui  # type: ignore
+
+            hwnd = win32gui.GetForegroundWindow()
+            if hwnd:
+                win32gui.ShowWindow(
+                    hwnd,
+                    win32con.SW_MAXIMIZE
+                    if action == "maximize"
+                    else win32con.SW_MINIMIZE,
+                )
+                try:
+                    from _orunex_libs import activity_log  # type: ignore
+
+                    activity_log.emit(
+                        "display", f"{action.capitalize()}d active window", "success"
+                    )
+                except Exception:
+                    pass
+                return f"[OK] Ventana {action}."
+        except Exception:
+            pass
+        pyautogui.hotkey('win', 'up' if action == "maximize" else 'down')
+        return f"[OK] Ventana {action} (hotkey)."
     return f"[WARN] Accion '{action}' no reconocida para navegador."
 
 def hook_office(app_key: str, action: str, value: str) -> str:

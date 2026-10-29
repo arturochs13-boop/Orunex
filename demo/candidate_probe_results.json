@@ -1,0 +1,237 @@
+[
+  {
+    "candidate": {
+      "index": 272,
+      "time": "2026-09-27T17:00:00+00:00",
+      "close": 84574.0,
+      "ema20": 84557.26446577982,
+      "ema50": 84402.62828037146,
+      "ema200": 83318.27102693994,
+      "rsi": 52.204064293045526,
+      "swing_low": 84325.0,
+      "recent_high": 85159.03,
+      "rr": 2.35,
+      "future_high": 84999.0,
+      "future_low": 82597.55
+    },
+    "chart": "C:\\Users\\Hp\\Downloads\\Project_Orunex\\demo\\charts\\candidate_01_2026-09-27.png",
+    "volume_ratio": 0.54,
+    "alert": {
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "price": 84574.0,
+      "rsi": 52.2,
+      "ema20": 84557.26,
+      "ema50": 84402.63,
+      "ema200": 83318.27,
+      "ema_trend": "up",
+      "volume_ratio": 0.54,
+      "support": 84305.35,
+      "resistance": 85159.03,
+      "note": "Delegated order: analyse the live TradingView chart and execute the best paper entry the setup supports. Use the live chart price as entry and visible support/resistance for stop loss / take profit. Paper only, no real broker. HOLD only if the chart symbol is unreadable or no coherent stop exists."
+    },
+    "decision": {
+      "action": "HOLD",
+      "symbol": "BTCUSDT",
+      "entry": 84574.0,
+      "stop_loss": 84305.35,
+      "take_profit": 85159.03,
+      "confidence": 0.35,
+      "rationale": "EMA trend up but RSI 52.2 below 55-70 pullback requirement, volume_ratio 0.54 weak, recent sharp rejection from 85159 resistance. Setup does not meet trend-following criteria, prefer HOLD per risk playbook.",
+      "strategy_refs": [
+        "BTCUSDT trend-following: buy pullbacks RSI 55-70",
+        "Risk playbook: prefer HOLD when unsure"
+      ]
+    },
+    "elapsed": 5.3,
+    "accepted": false
+  },
+  {
+    "candidate": {
+      "index": 367,
+      "time": "2026-10-01T16:00:00+00:00",
+      "close": 84202.01,
+      "ema20": 83900.1514258849,
+      "ema50": 83813.73267524883,
+      "ema200": 83561.05593837757,
+      "rsi": 56.57764128791248,
+      "swing_low": 83186.0,
+      "recent_high": 85649.95,
+      "rr": 1.43,
+      "future_high": 86912.75,
+      "future_low": 84198.0
+    },
+    "chart": "C:\\Users\\Hp\\Downloads\\Project_Orunex\\demo\\charts\\candidate_02_2026-10-01.png",
+    "volume_ratio": 1.1,
+    "alert": {
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "price": 84202.01,
+      "rsi": 56.6,
+      "ema20": 83900.15,
+      "ema50": 83813.73,
+      "ema200": 83561.06,
+      "ema_trend": "up",
+      "volume_ratio": 1.1,
+      "support": 83186.0,
+      "resistance": 85649.95,
+      "note": "Delegated order: analyse the live TradingView chart and execute the best paper entry the setup supports. Use the live chart price as entry and visible support/resistance for stop loss / take profit. Paper only, no real broker. HOLD only if the chart symbol is unreadable or no coherent stop exists."
+    },
+    "decision": {
+      "action": "BUY",
+      "symbol": "BTCUSDT",
+      "entry": 84202.01,
+      "stop_loss": 83186.0,
+      "take_profit": 85649.95,
+      "confidence": 0.62,
+      "rationale": "EMA20>EMA50>EMA200 uptrend with price holding above EMAs, RSI 56.6 in 55-70 pullback zone, volume_ratio 1.1. Paper long at live price with stop below visible swing low support and target at visible resistance, risk within 1% and position cap.",
+      "strategy_refs": [
+        "BTCUSDT trend-following: buy pullbacks EMA up RSI 55-70",
+        "Risk playbook: max 1% risk, 20% cap, require stop"
+      ]
+    },
+    "elapsed": 7.0,
+    "accepted": false
+  },
+  {
+    "candidate": {
+      "index": 426,
+      "time": "2026-10-04T03:00:00+00:00",
+      "close": 84840.87,
+      "ema20": 84807.40043085782,
+      "ema50": 84794.50940601152,
+      "ema200": 84203.52167641043,
+      "rsi": 51.252054217253,
+      "swing_low": 84558.0,
+      "recent_high": 85758.81,
+      "rr": 3.25,
+      "future_high": 86686.39,
+      "future_low": 84808.11
+    },
+    "chart": "C:\\Users\\Hp\\Downloads\\Project_Orunex\\demo\\charts\\candidate_03_2026-10-04.png",
+    "volume_ratio": 0.73,
+    "alert": {
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "price": 84840.87,
+      "rsi": 51.3,
+      "ema20": 84807.4,
+      "ema50": 84794.51,
+      "ema200": 84203.52,
+      "ema_trend": "up",
+      "volume_ratio": 0.73,
+      "support": 84558.0,
+      "resistance": 87220.0,
+      "note": "Delegated order: analyse the live TradingView chart and execute the best paper entry the setup supports. Use the live chart price as entry and visible support/resistance for stop loss / take profit. Paper only, no real broker. HOLD only if the chart symbol is unreadable or no coherent stop exists."
+    },
+    "decision": {
+      "action": "HOLD",
+      "symbol": "BTCUSDT",
+      "entry": 84840.87,
+      "stop_loss": 84558.0,
+      "take_profit": 87220.0,
+      "confidence": 0.35,
+      "rationale": "EMA20>EMA50>EMA200 confirms uptrend but RSI 51.3 is below 55-70 pullback filter and volume_ratio 0.73 shows low-momentum consolidation at EMAs. Risk playbook prefers HOLD when unsure; no trade edge, no profit promised.",
+      "strategy_refs": [
+        "BTCUSDT trend-following: buy pullbacks when EMA trend is up and RSI 55-70",
+        "Risk playbook: max 1% risk, prefer HOLD when unsure"
+      ]
+    },
+    "elapsed": 5.5,
+    "accepted": false
+  },
+  {
+    "candidate": {
+      "index": 467,
+      "time": "2026-10-05T20:00:00+00:00",
+      "close": 85783.94,
+      "ema20": 85781.82657995335,
+      "ema50": 85587.97554420862,
+      "ema200": 84712.23161259368,
+      "rsi": 50.51513976348391,
+      "swing_low": 84972.01,
+      "recent_high": 86999.11,
+      "rr": 1.5,
+      "future_high": 86698.99,
+      "future_low": 85136.11
+    },
+    "chart": "C:\\Users\\Hp\\Downloads\\Project_Orunex\\demo\\charts\\candidate_04_2026-10-05.png",
+    "volume_ratio": 0.35,
+    "alert": {
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "price": 85783.94,
+      "rsi": 50.5,
+      "ema20": 85781.83,
+      "ema50": 85587.98,
+      "ema200": 84712.23,
+      "ema_trend": "up",
+      "volume_ratio": 0.35,
+      "support": 84972.01,
+      "resistance": 86999.11,
+      "note": "Delegated order: analyse the live TradingView chart and execute the best paper entry the setup supports. Use the live chart price as entry and visible support/resistance for stop loss / take profit. Paper only, no real broker. HOLD only if the chart symbol is unreadable or no coherent stop exists."
+    },
+    "decision": {
+      "action": "HOLD",
+      "symbol": "BTCUSDT",
+      "entry": 85783.94,
+      "stop_loss": 84972.01,
+      "take_profit": 86999.11,
+      "confidence": 0.35,
+      "rationale": "EMA trend is up but RSI 50.5 is below 55-70 buy pullback zone and volume_ratio 0.35 shows weak participation. Price is pinned at EMA20 with choppy rejection candles. No high-quality trend-following setup, prefer HOLD per risk playbook. Paper only, no profit implied.",
+      "strategy_refs": [
+        "BTCUSDT trend-following",
+        "Risk playbook"
+      ]
+    },
+    "elapsed": 4.6,
+    "accepted": false
+  },
+  {
+    "candidate": {
+      "index": 837,
+      "time": "2026-10-21T06:00:00+00:00",
+      "close": 82808.89,
+      "ema20": 82656.34239418503,
+      "ema50": 82366.0438939241,
+      "ema200": 82309.76386132542,
+      "rsi": 55.78581586091933,
+      "swing_low": 82393.77,
+      "recent_high": 83439.0,
+      "rr": 1.52,
+      "future_high": 84898.0,
+      "future_low": 82768.3
+    },
+    "chart": "C:\\Users\\Hp\\Downloads\\Project_Orunex\\demo\\charts\\candidate_05_2026-10-21.png",
+    "volume_ratio": 0.61,
+    "alert": {
+      "symbol": "BTCUSDT",
+      "timeframe": "1h",
+      "price": 82808.89,
+      "rsi": 55.8,
+      "ema20": 82656.34,
+      "ema50": 82366.04,
+      "ema200": 82309.76,
+      "ema_trend": "up",
+      "volume_ratio": 0.61,
+      "support": 82393.77,
+      "resistance": 83439.0,
+      "note": "Delegated order: analyse the live TradingView chart and execute the best paper entry the setup supports. Use the live chart price as entry and visible support/resistance for stop loss / take profit. Paper only, no real broker. HOLD only if the chart symbol is unreadable or no coherent stop exists."
+    },
+    "decision": {
+      "action": "BUY",
+      "symbol": "BTCUSDT",
+      "entry": 82808.89,
+      "stop_loss": 82393.77,
+      "take_profit": 83439.0,
+      "confidence": 0.6,
+      "rationale": "EMA20>EMA50>EMA200 uptrend with price holding above EMA20, RSI 55.8 in 55-70 pullback zone, stop below visible swing low support and target visible resistance, paper only, no profit guarantee.",
+      "strategy_refs": [
+        "BTCUSDT trend-following: buy pullbacks EMA up RSI 55-70",
+        "Risk playbook: max 1% risk"
+      ]
+    },
+    "elapsed": 6.2,
+    "accepted": false
+  }
+]

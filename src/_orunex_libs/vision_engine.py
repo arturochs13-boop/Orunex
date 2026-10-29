@@ -14,6 +14,40 @@ sys.path.append(PROJECT_ROOT)
 
 _VISION_MODEL = None
 _VISION_TOKENIZER = None
+_LAST_CAPTURE_LOG = 0.0
+
+
+def _log_screen_capture(message, level="info", **data):
+    """Keep vision grounding visible without flooding the activity panel."""
+    global _LAST_CAPTURE_LOG
+    now = time.time()
+    if now - _LAST_CAPTURE_LOG < 2.0:
+        return
+    _LAST_CAPTURE_LOG = now
+    try:
+        from _orunex_libs import activity_log  # type: ignore
+
+        activity_log.emit("screen_capture", message, level, **data)
+    except Exception:
+        pass
+
+
+def _spark_click(x, y):
+    try:
+        from _orunex_libs import click_fx  # type: ignore
+
+        click_fx.spark_at(int(x), int(y))
+    except Exception:
+        pass
+    try:
+        from _orunex_libs import activity_log  # type: ignore
+
+        activity_log.emit(
+            "click", f"Click ({int(x)}, {int(y)})", "info", x=int(x), y=int(y)
+        )
+    except Exception:
+        pass
+
 
 def get_vision_model():
     """Lazy-loads local Moondream2 using transformers on CUDA/CPU directly."""
@@ -46,6 +80,11 @@ def take_fast_screenshot(monitor=1):
             
         screenshot = sct.grab(monitor_list[monitor])
         img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+        _log_screen_capture(
+            f"Screen captured for visual grounding · {img.width}×{img.height}",
+            "success",
+            monitor=monitor,
+        )
         
         buffered = BytesIO()
         img.save(buffered, format="PNG")
@@ -64,6 +103,7 @@ def skip_ads_intelligent(monitor=1):
         if coords:
             pyautogui.moveTo(coords[0], coords[1], duration=0.2)
             pyautogui.click()
+            _spark_click(coords[0], coords[1])
             results.append(f"Elemento limpiado: {target}")
             time.sleep(0.5)
             

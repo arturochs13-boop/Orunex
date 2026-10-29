@@ -1,6 +1,6 @@
 """TASK 1 — Autonomous Android ⇄ Laptop bugfix (Live / voice & vision).
 
-Pipeline (every semantic step is Muse Spark)::
+Pipeline (every semantic step is Meta Muse)::
 
     [ADB Bridge] screencap
         -> [Meta API] multimodal diagnosis (JSON)
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -46,12 +47,12 @@ VERIFY_SCHEMA = (
 )
 
 DIAGNOSIS_SYSTEM = (
-    "You are Muse Spark, an expert Android UI debugger. Analyse the phone "
+    "You are Muse, an expert Android UI debugger. Analyse the phone "
     "screenshot precisely: broken layout, wrong text, crashes, blank areas, "
     "error dialogs. Ground every claim in visible pixels."
 )
 PATCH_SYSTEM = (
-    "You are Muse Spark, a senior Android engineer. Choose the ONE candidate "
+    "You are Muse, a senior Android engineer. Choose the ONE candidate "
     "file that owns the broken component and propose a minimal exact patch. "
     "Candidates may include an 'EXACT SOURCE LINES' block; its 'Lx:' prefixes "
     "are only for orientation, so copy the source text after them verbatim. "
@@ -81,6 +82,30 @@ class AndroidBugfixTask:
     def _log(self, stage: str, message: str, *, nxt: str = "", level: str = "INFO") -> None:
         if self.bus:
             self.bus.log(stage, message, level=level, next_stage=nxt)
+
+    def _reason_json(self, **kwargs: Any) -> dict[str, Any]:
+        try:
+            return self.meta.reason_json(**kwargs)
+        except TypeError:
+            for key in ("max_tokens", "reasoning_effort", "model"):
+                kwargs.pop(key, None)
+            return self.meta.reason_json(**kwargs)
+
+    def _analyze_image(self, image: Any, prompt: str, **kwargs: Any) -> dict[str, Any]:
+        try:
+            return self.meta.analyze_image(image, prompt, **kwargs)
+        except TypeError:
+            for key in ("max_tokens", "reasoning_effort", "model"):
+                kwargs.pop(key, None)
+            return self.meta.analyze_image(image, prompt, **kwargs)
+
+    def _dismiss_anr(self) -> None:
+        dismiss = getattr(self.adb, "dismiss_system_anr", None)
+        if callable(dismiss):
+            try:
+                dismiss()
+            except Exception:
+                pass
 
     def _evidence_block(
         self,
@@ -132,32 +157,58 @@ class AndroidBugfixTask:
             self.settings.auto_apply_fixes if request.auto_apply is None
             else bool(request.auto_apply)
         )
+        timings: dict[str, float] = {}
+        result.data["timings_s"] = timings
+        index_pool: ThreadPoolExecutor | None = None
+        index_future = None
         try:
             # 1) Capture -----------------------------------------------------
+            # prepare_for_task auto-starts the emulator when it is closed.
             self._log(BRAIN, "Bugfix pipeline started", nxt=ADB)
+            capture_started = time.monotonic()
             package = request.package or self.settings.android_package
-            ensure = getattr(self.adb, "ensure_device", None)
-            if callable(ensure):
-                ensure()
-            wake = getattr(self.adb, "wake", None)
-            if callable(wake):
-                wake()
-            keep_awake = getattr(self.adb, "keep_screen_awake", None)
-            if callable(keep_awake):
-                keep_awake()
-            focus = self.adb.current_focus()
-            if package not in focus:
-                self._log(ADB, f"Foregrounding {package}", nxt=META)
-                self.adb.launch(package)
-                if not self.adb.wait_for_focus(package, timeout=20):
-                    raise RuntimeError(f"Could not bring {package} to the foreground.")
-                time.sleep(1.2)
+            prepare = getattr(self.adb, "prepare_for_task", None)
+            if callable(prepare):
+                focus = prepare(package)
+            else:
+                ensure = getattr(self.adb, "ensure_device", None)
+                if callable(ensure):
+                    ensure()
+                wake = getattr(self.adb, "wake", None)
+                if callable(wake):
+                    wake()
+                keep_awake = getattr(self.adb, "keep_screen_awake", None)
+                if callable(keep_awake):
+                    keep_awake()
                 focus = self.adb.current_focus()
-            image = self.adb.screencap()
-            hierarchy = self.adb.ui_hierarchy()
-            logcat = self.adb.recent_errors()
+                if package not in focus:
+                    self._log(ADB, f"Foregrounding {package}", nxt=META)
+                    self.adb.launch(package)
+                    if not self.adb.wait_for_focus(package, timeout=20):
+                        raise RuntimeError(f"Could not bring {package} to the foreground.")
+                    time.sleep(1.2)
+                    focus = self.adb.current_focus()
+            # Screenshot / UI tree / logcat are independent ADB reads.
+            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="ADBCapture") as pool:
+                image_future = pool.submit(self.adb.screencap)
+                hierarchy_future = pool.submit(self.adb.ui_hierarchy)
+                logcat_future = pool.submit(self.adb.recent_errors)
+                image = image_future.result()
+                hierarchy = hierarchy_future.result()
+                logcat = logcat_future.result()
+            timings["capture"] = round(time.monotonic() - capture_started, 2)
+
+            # Refresh FAISS while Muse looks at the screenshot: the refresh
+            # is independent of the diagnosis and would otherwise serialize.
+            if request.index_codebase_first:
+                index_root = self.settings.android_project_dir
+                if not index_root.is_dir():
+                    index_root = self.settings.workspace_root
+                index_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="FAISSRefresh")
+                index_future = index_pool.submit(self.memory.index_codebase, index_root)
 
             # 2) Muse multimodal diagnosis -----------------------------------
+            diagnosis_started = time.monotonic()
             prompt = (
                 "Diagnose this Android screen. "
                 f"Current focus: {focus or 'unknown'}. "
@@ -165,9 +216,15 @@ class AndroidBugfixTask:
                 f"UI hierarchy excerpt: {hierarchy[:1500] or '(unavailable)'}. "
                 f"Recent logcat errors: {logcat[:1200] or '(none)'}."
             )
-            diagnosis = self.meta.analyze_image(
-                image, prompt, system=DIAGNOSIS_SYSTEM
+            diagnosis = self._analyze_image(
+                image,
+                prompt,
+                system=DIAGNOSIS_SYSTEM,
+                max_tokens=3000,
+                model=self.settings.meta_fast_model,
+                reasoning_effort="minimal",
             )
+            timings["diagnosis"] = round(time.monotonic() - diagnosis_started, 2)
             result.data["diagnosis"] = diagnosis
             self._log(
                 META,
@@ -177,6 +234,13 @@ class AndroidBugfixTask:
                 nxt=FAISS,
             )
             if not diagnosis.get("has_error"):
+                if index_future is not None:
+                    try:
+                        index_future.result(timeout=10.0)
+                    except Exception:
+                        pass
+                if index_pool is not None:
+                    index_pool.shutdown(wait=False, cancel_futures=True)
                 self.memory.remember(
                     "episode",
                     f"Android screen checked, no error. Screen: {diagnosis.get('screen')}",
@@ -185,16 +249,20 @@ class AndroidBugfixTask:
                 return result.finish(TaskState.COMPLETED, "No UI error detected on screen.")
 
             # 3) FAISS Match ---------------------------------------------------
-            if request.index_codebase_first:
+            if index_future is not None:
                 # Incremental refresh keeps candidate snippets in sync with the
                 # file on disk (e.g. after re-planting the demo defect).
-                self._log(FAISS, "Refreshing code index (incremental)", nxt=FAISS)
-                index_root = self.settings.android_project_dir
-                if not index_root.is_dir():
-                    index_root = self.settings.workspace_root
-                added = self.memory.index_codebase(index_root)
-                if added:
-                    self._log(FAISS, f"Code index refreshed: +{added} chunk(s)", nxt=FAISS)
+                refresh_started = time.monotonic()
+                try:
+                    added = index_future.result()
+                    if added:
+                        self._log(FAISS, f"Code index refreshed: +{added} chunk(s)", nxt=FAISS)
+                except Exception as exc:
+                    self._log(FAISS, f"Code-index refresh skipped: {exc}", level="WARN", nxt=FAISS)
+                finally:
+                    if index_pool is not None:
+                        index_pool.shutdown(wait=False, cancel_futures=True)
+                timings["faiss_refresh_wait"] = round(time.monotonic() - refresh_started, 2)
             visible = diagnosis.get("visible_text") or []
             if isinstance(visible, str):
                 visible = [visible]
@@ -262,7 +330,8 @@ class AndroidBugfixTask:
                     f"Attached exact evidence lines for {evidence_count} candidate(s)",
                     nxt=META,
                 )
-            patch = self.meta.reason_json(
+            patch_started = time.monotonic()
+            patch = self._reason_json(
                 system=PATCH_SYSTEM,
                 user=(
                     f"Diagnosis: {diagnosis}\n\n"
@@ -270,7 +339,10 @@ class AndroidBugfixTask:
                     + "\n\nPick the owning file and propose the minimal exact patch."
                 ),
                 schema_hint=PATCH_SCHEMA,
+                max_tokens=6144,
+                reasoning_effort="high",
             )
+            timings["patch_decision"] = round(time.monotonic() - patch_started, 2)
             result.data["patch"] = patch
             if float(patch.get("confidence") or 0) < 0.35:
                 return result.finish(
@@ -337,6 +409,7 @@ class AndroidBugfixTask:
                 self.adb.launch(request.package or None)
                 self.adb.wait_for_focus(request.package or None, timeout=15)
             time.sleep(3.0)  # WebView first paint can lag the focus change
+            self._dismiss_anr()
             verify_image = self.adb.screencap()
             # A cold WebView can report focus while still showing a blank
             # frame.  Wait until the frame has real content (measured by PNG
@@ -359,14 +432,17 @@ class AndroidBugfixTask:
                     )
             verification: dict[str, Any] = {}
             for attempt in range(2):
-                verification = self.meta.reason_json(
-                    system="You are Muse Spark verifying an Android UI fix from pixels only.",
+                verification = self._reason_json(
+                    system="You are Muse verifying an Android UI fix from pixels only.",
                     user=(
                         f"Original diagnosis: {diagnosis}. Patch rationale: "
                         f"{patch.get('rationale')}. Is the error gone in this new screenshot?"
                     ),
                     schema_hint=VERIFY_SCHEMA,
                     images=[verify_image],
+                    max_tokens=3000,
+                    model=self.settings.meta_fast_model,
+                    reasoning_effort="minimal",
                 )
                 if verification.get("fixed") or attempt:
                     break
@@ -375,6 +451,7 @@ class AndroidBugfixTask:
                     level="WARN",
                 )
                 time.sleep(2.0)
+                self._dismiss_anr()
                 verify_image = self.adb.screencap()
             result.data["verification"] = verification
             fixed = bool(verification.get("fixed"))
@@ -392,6 +469,8 @@ class AndroidBugfixTask:
                 f"on-device verification: {'fixed' if fixed else 'error still visible'}.",
             )
         except Exception as exc:
+            if index_pool is not None:
+                index_pool.shutdown(wait=False, cancel_futures=True)
             result.error = f"{type(exc).__name__}: {exc}"
             self._log(BRAIN, result.error, level="ERROR")
             return result.finish(TaskState.FAILED, f"Bugfix failed: {result.error}")

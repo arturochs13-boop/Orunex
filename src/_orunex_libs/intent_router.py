@@ -136,6 +136,8 @@ APPS = {
     "taskmgr": ("administrador de tareas", "task manager", "taskmgr"),
     "terminal": ("terminal", "cmd", "simbolo del sistema", "powershell"),
     "vscode": ("vscode", "visual studio code", "vs code", "code"),
+    "androidstudio": ("android studio",),
+    "tradingview": ("tradingview", "trading view"),
     "spotify": ("spotify",),
     "whatsapp": ("whatsapp",),
     "telegram": ("telegram",),

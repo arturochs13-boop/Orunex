@@ -1,0 +1,17 @@
+{
+  "balance": 10000.0,
+  "orders": [
+    {
+      "order_id": "PAPER-D93F4A1DFD",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "quantity": 0.024152,
+      "entry": 82808.89,
+      "stop_loss": 82350.0,
+      "take_profit": 83439.0,
+      "status": "OPEN",
+      "opened_at": 1793158452.7272882,
+      "rationale": "Paper only. Price 82808.89 above rising EMA20/50/200 with EMA trend up, RSI 55.8 in 55-70 trend-following zone after pullback holding EMA20. Stop below visible swing low 82393.77, target at visible resistance 83439.00."
+    }
+  ]
+}

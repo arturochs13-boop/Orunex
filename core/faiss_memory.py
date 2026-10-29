@@ -163,8 +163,12 @@ class FAISSMemory:
         with self._lock:
             if self._index.ntotal <= 0:
                 return []
-            # Over-fetch when filtering by kind so the filter cannot starve us.
-            fetch = min(int(self._index.ntotal), max(top_k * 6, top_k))
+            # Over-fetch when filtering by kind so the filter cannot starve
+            # us: with a code-dominated index, the few strategy memories can
+            # sit far beyond top_k*6 in the ranking.
+            fetch = int(self._index.ntotal) if kind else min(
+                int(self._index.ntotal), max(top_k * 6, top_k)
+            )
             scores, ids = self._index.search(vector, fetch)
             results: list[dict[str, Any]] = []
             for score, memory_id in zip(scores[0], ids[0]):
