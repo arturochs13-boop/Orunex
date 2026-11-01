@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Acta Ejecutiva de Transferencia Criptográfica — 0xDEMO_CORP_001</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Calibri, Arial, sans-serif;
+            margin: 40px auto;
+            max-width: 820px;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+        .header {
+            border-bottom: 3px solid #1e3a8a;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+        }
+        .seal {
+            display: inline-block;
+            background: #1e3a8a;
+            color: #fff;
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: bold;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        h1 {
+            color: #0f172a;
+            margin: 12px 0 4px 0;
+            font-size: 24px;
+        }
+        .meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 12px;
+        }
+        .meta-table th, .meta-table td {
+            border: 1px solid #cbd5e1;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        .meta-table th {
+            background: #f1f5f9;
+            width: 25%;
+            color: #475569;
+        }
+        .code {
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 11px;
+            word-break: break-all;
+            color: #0369a1;
+        }
+        .markdown-body {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 24px;
+            border-radius: 6px;
+            margin-top: 24px;
+        }
+        .badge-verified {
+            color: #15803d;
+            font-weight: bold;
+        }
+        .footer {
+            margin-top: 40px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 14px;
+            font-size: 11px;
+            color: #64748b;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span class="seal">Single Source of Truth · Autonomous Governance</span>
+        <h1>Acta Notarial y Ejecutiva de Protocolo .bmd</h1>
+        <p style="color: #64748b; font-size: 13px; margin: 0;">Generada de forma determinista por el Agente Autónomo <strong>muse-spark</strong></p>
+    </div>
+
+    <table class="meta-table">
+        <tr><th>Identificador de Bloque</th><td><strong>0xDEMO_CORP_001</strong></td></tr>
+        <tr><th>Modo Operativo</th><td>DUAL-SIGNED & FINALIZED</td></tr>
+        <tr><th>Integridad Criptográfica</th><td class="badge-verified">✓ VÁLIDO (Matemáticamente Inmutable)</td></tr>
+        <tr><th>Ledger Hash (SHA-512)</th><td class="code">c7dee476b54cd4f1850332af94bf6dfb74ef0cf7f634b36fd12079ecfd7c42d12001c4199e0a499bfb54680b2203a211d5deff16e0bddc443b61d1f578a7f446</td></tr>
+        <tr><th>Hash Ancestral (Previous)</th><td class="code">00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000</td></tr>
+        <tr><th>Firma Emisor (Ed25519)</th><td class="code">dc3f0efc2bc4831b8bc8bd8f7e4d2df98579e3294bd3a424ead5ae0035d2259a69da1af2af3fe13dcab73f4cfa8684b4e60f0f53deea048377b7a391ede57403</td></tr>
+        <tr><th>Clave Pública Emisor</th><td class="code">2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12</td></tr>
+        <tr><th>Firma Receptor (Co-Sign)</th><td class="code">1248e36313863fe990a18e782e47419b30490979b2baec46b75108e2bd5eef34328c1a74e83f8ba3dcc001938d2ab9d8f5fd94047e344b014224d4cd02263304</td></tr>
+        <tr><th>Clave Pública Receptor</th><td class="code">332ebe8d27cb7323b3a401c1c13b5dd64bccc0e10ecda1c2b5d11a03779a85e5</td></tr>
+        <tr><th>Marca Temporal UNIX</th><td>1772210000 (2026-02-27 10:33:20 UTC)</td></tr>
+    </table>
+
+    <h3>Contenido Certificado del Bloque</h3>
+    <div class="markdown-body">
+        <pre style="white-space: pre-wrap; font-family: inherit;"># Contrato de Transferencia de Propiedad de Software
+
+Este documento formaliza la transferencia legal y de derechos patrimoniales sobre el software del motor criptográfico **BMD Engine v1.0**.
+
+## 1. Declaración de las Partes
+- **Parte Emisora / Cedente**: Autonomous Core Devs (`muse-spark` Agent Governance)
+- **Parte Receptora / Cesionaria**: Enterprise Global Operations S.A.
+
+## 2. Especificaciones del Activo Transferido
+| Concepto | Especificación |
+| :--- | :--- |
+| **Módulo Principal** | Motor C11 de Gobernanza Criptográfica `bmd_engine` |
+| **Estándar de Hash** | NIST FIPS 180-4 SHA-512 (128 hex chars) |
+| **Firma Digital L2** | Curva Elíptica Ed25519 (RFC 8032 / TweetNaCl) |
+| **Inmutabilidad** | Bloqueo estricto post-compilación y soporte de co-firma dual |
+
+## 3. Cláusulas de Gobernanza y Ejecución Determinista
+1. **Regla de Inmutabilidad Absoluta**: La firma del emisor vincula de forma determinista el cuerpo Markdown al `current_hash`.
+2. **Co-Firma del Receptor**: El receptor verifica la integridad del archivo y ratifica su recepción sin alterar el payload.
+3. **Auditoría Automatizada**: El agente autónomo genera las actas de transferencia en Microsoft Word y matrices de auditoría en Excel.</pre>
+    </div>
+
+    <div class="footer">
+        Certificación Criptográfica C11 · Curve25519 / SHA-512 / RFC 8032 · Project Orunex
+    </div>
+</body>
+</html>

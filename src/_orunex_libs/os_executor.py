@@ -1018,6 +1018,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     office_matches = re.findall(r"\[OFFICE_MISSION:\s*(.*?)\|\s*(.*?)\|\s*(.*?)\]", text, re.IGNORECASE)
     # Phase 40.4: Sovereign UI Cleaner
     ui_clean_matches = re.findall(r"\[UI_CLEAN\]", text, re.IGNORECASE)
+    # BMD Engine: real Blockchain Markdown operations (CLI + FFI).
+    bmd_matches = re.findall(r"\[BMD:\s*([^\]]+)\]", text, re.IGNORECASE)
     # Phase 20.0: Vision & Shortcuts (Restored)
     uia_click_matches = re.findall(r"\[UIA_CLICK:\s*(.*?)\]", text, re.IGNORECASE)
     gui_shortcut = re.findall(r"\[GUI_SHORTCUT:\s*(.*?)\]", text)
@@ -1044,7 +1046,8 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
     # Strict Policy: Only 1 action allowed per system response to prevent loops.
     # V37.3: MODIFY_DOC is now EXEMPT from the 1-action limit to ensure it always runs.
     all_tags_count = len(mkdir_matches) + len(cmd_matches) + len(gui_open_matches) + len(file_matches) + \
-                     len(make_doc_matches) + len(mission_matches) + len(office_matches) + len(ui_clean_matches)
+                     len(make_doc_matches) + len(mission_matches) + len(office_matches) + len(ui_clean_matches) + \
+                     len(bmd_matches)
     if all_tags_count > 1:
         results.append("[WARN] Silence-Shield: Multi-accion detectada. Priorizando ejecucion.")
         if gui_open_matches: gui_open_matches = [gui_open_matches[0]]
@@ -1626,6 +1629,43 @@ def intercept_and_execute(text: str, auto_healer_agent: str = "cerebro", auto_he
             results.append(f"[ERR] Doc Factory error: {e}\n{traceback.format_exc()[:300]}")
             notify_progress(f"❌ Error generando documento: {e}", "error")
     
+    # BMD Engine: create, verify, render, export, sign, co-sign and audit.
+    if bmd_matches:
+        try:
+            from . import bmd_expert  # type: ignore
+
+            for raw_tag in bmd_matches:
+                parsed = bmd_expert.parse_bmd_tags(f"[BMD: {raw_tag}]")
+                if not parsed:
+                    results.append("[ERR] BMD: etiqueta vacía o inválida.")
+                    continue
+                action, bmd_path, bmd_extra = parsed[0]
+                notify_progress(f"🔗 BMD: {action}…", "info")
+                outcome = bmd_expert.execute_tag(
+                    action, bmd_path, bmd_extra
+                )
+                message = str(outcome.get("message") or "")
+                results.append(f"[BMD] {message}")
+                artifact_path = str(outcome.get("path") or "")
+                if (
+                    outcome.get("ok")
+                    and artifact_path
+                    and os.path.exists(artifact_path)
+                ):
+                    kind = (
+                        os.path.splitext(artifact_path)[1].lstrip(".").lower()
+                        or "bmd"
+                    )
+                    title = os.path.splitext(os.path.basename(artifact_path))[0]
+                    results.append(
+                        f"[ARTIFACT: {artifact_path}|{kind}|{title}]"
+                    )
+                    notify_progress(f"✅ BMD: {message[:120]}", "success")
+                elif not outcome.get("ok"):
+                    notify_progress(f"⚠️ BMD: {message[:160]}", "warning")
+        except Exception as exc:
+            results.append(f"[ERR] BMD Engine: {type(exc).__name__}: {exc}")
+
     # Phase 31.0: Chrome URL Open (Nativo V37)
     if open_url_matches:
         for target in open_url_matches:

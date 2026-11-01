@@ -782,6 +782,30 @@ def clean_reasoning_output(text):
 from _orunex_libs.ollama_client import call_ollama, call_ollama_stream
 
 
+_BMD_HINT = re.compile(
+    r"(?i)(\.bmd\b|blockchain\s*markdown|\bbmd\b|bmd_engine|bmd_cli)"
+)
+
+
+def _bmd_prompt_context(task):
+    """Return verified BMD knowledge only when the task mentions BMD.
+
+    The pack lives in the Meta FAISS index under ``kind="bmd"``; this helper
+    performs a filtered retrieval so the model receives engine-accurate facts
+    (SHA-512, CLI flags, demo seeds, state rules) instead of guessing.
+    """
+    if not _BMD_HINT.search(str(task or "")):
+        return ""
+    try:
+        from _orunex_libs.bmd_knowledge import bmd_context
+
+        block = str(bmd_context(str(task), top_k=4) or "").strip()
+        return "\n\n" + block if block else ""
+    except Exception as exc:
+        print(f"[CEREBRO] BMD knowledge skipped: {exc}")
+        return ""
+
+
 def _recall_memory_context(task):
     """Build a bounded prompt block from SQLite/JSON and FAISS memory.
 
@@ -868,7 +892,7 @@ def run(task, user_name, attached_file=None, agent_mode="natural", stream_callba
         use_reasoning_mode = _should_use_reasoning_mode(task, is_os_mode)
 
         if use_reasoning_mode:
-            system_prompt = REASONING_SYSTEM_PROMPT
+            system_prompt = REASONING_SYSTEM_PROMPT + _bmd_prompt_context(task)
             prompt = f"{project_context}{memory_context}USER MESSAGE:\n{task}"
         else:
             # V50.0 Sovereign Core Prompt — Extended Intelligence
@@ -906,6 +930,17 @@ def run(task, user_name, attached_file=None, agent_mode="natural", stream_callba
                 "   [FILE: nombre.py]\\ncódigo aquí\\n[/FILE] → crea archivos de código\n"
                 "   [CMD: python script.py] → ejecuta scripts locales\n"
                 "   [MKDIR: ruta] → crea directorios\n\n"
+                "🔗 BLOCKCHAIN MARKDOWN (.bmd): motor local v2.1.0 (C11 + FFI + CLI).\n"
+                "   • [BMD: create | tema del documento] → crea un bloque .bmd válido y calcula su hash SHA-512\n"
+                "   • [BMD: verify | ruta.bmd] → verifica integridad con bmd_cli.exe\n"
+                "   • [BMD: inspect | ruta.bmd] → muestra metadatos, modo y firmas\n"
+                "   • [BMD: render | ruta.bmd] → genera HTML standalone\n"
+                "   • [BMD: export | ruta.bmd] → exporta metadatos para Office\n"
+                "   • [BMD: audit | ruta1.bmd,ruta2.bmd] → audita la cadena\n"
+                "   • [BMD: sign | ruta.bmd] → congela y firma como emisor (v2.1 sign)\n"
+                "   • [BMD: co-sign | ruta.bmd] → co-firma como receptor si max_signatures lo permite (v2.1 cosign)\n"
+                "   Los contratos bilaterales usan max_signatures: 2; los unilaterales, 1; 0 = ilimitado.\n"
+                "   El hash real es SHA-512 (128 hex), no SHA-256. Nunca afirmes que un bloque fue firmado o verificado sin el resultado real del motor.\n\n"
                 "🌐 NAVEGACIÓN: [GUI_NAVIGATE: url] → abre URLs en el navegador\n\n"
                 "🗂️ PESTAÑAS Y VENTANA (acciones reales, una sola etiqueta por acción):\n"
                 "   • [GUI_TAB_CLOSE: active] → cierra la pestaña activa (Ctrl+W)\n"
@@ -924,6 +959,7 @@ def run(task, user_name, attached_file=None, agent_mode="natural", stream_callba
                 "   [PROJECT_PLAN: {\"goal\": \"objetivo\", \"steps\": [{\"title\": \"paso\", \"desc\": \"detalle\"}]}]\n\n"
                 "REMEMBER: You are a sovereign engineer. Do not click through the UI. Deliver professional results.\n\n"
                 + CAPABILITY_CONTEXT
+                + _bmd_prompt_context(task)
             )
             prompt = f"{project_context}{memory_context}CURRENT TASK:\n{task}"
 

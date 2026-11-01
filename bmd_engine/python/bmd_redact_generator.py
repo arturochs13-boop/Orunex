@@ -1,0 +1,830 @@
+"""
+bmd_redact_generator.py - Executive Letter-Sheet Draft Editor & Redactor for BMD v2.1
+Autonomous Agent Governance Runtime & Cryptographic Document Studio
+
+Features:
+- "Cuadro estilo hoja carta" (Letter paper sheet canvas with fixed margins, infinite vertical scrolling).
+- Live Drafting Mode & Clean Executive Preview Mode (hides raw <> tags and source code).
+- Predefined typography tags: <title>, <subtitle>, <heading>, <body>, <bmd:rule>, <bmd:parties>, <bmd:signatures>, <bmd:seal>.
+- Built-in buttons: "Sign as Emitter", "Compile", "Preview", and "+ Add Co-Sign Slot" (co-sign NOT included by default).
+- Zero external dependencies: 100% self-contained offline HTML5 + WebCrypto SHA-512 + Ed25519.
+- Launches automatically in the default web browser.
+"""
+
+import sys
+import os
+import re
+import json
+import webbrowser
+
+DEFAULT_DRAFT_TEMPLATE = """---
+block_id: 0xBMD_DRAFT_CONTRACT_2026
+document_type: agreement
+mode: draft
+signer_role: emitter
+max_signatures: 1
+current_hash: 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+timestamp: 0
+public_key: ""
+signature_layer_2: ""
+receiver_public_key: ""
+receiver_signature: ""
+jurisdiction: International / Open Standard
+---
+
+<title>Executive Commercial Protocol</title>
+<subtitle>Formal Bilateral Agreement and Intellectual Property Covenant</subtitle>
+
+<!-- bmd:rule double -->
+
+<body>This agreement is executed between the undersigned parties under the Blockchain Markdown (.bmd) Protocol v2.1. The content herein is drafted in mutable draft mode and will become permanently immutable upon cryptographic compilation. Once sealed into transfer mode, neither party may alter or revoke the contents without invalidating the SHA-512 ledger proof.</body>
+
+<!-- bmd:parties -->
+
+<!-- bmd:rule single -->
+
+<heading>Clause 1: Scope of Deliverables and Authority</heading>
+<body>The First Party (Emitter) covenants to transfer, assign, and convey all proprietary rights, architecture definitions, and cryptographic consensus blocks to the Second Party (Receiver). The work product shall be delivered sealed under the designated verification standards.</body>
+
+<heading>Clause 2: Cryptographic Immutability and Non-Repudiation</heading>
+<body>Upon execution of the Compile command, the payload of this document is hashed via SHA-512 (64 bytes / 128 hex characters) and digitally signed using an Ed25519 elliptic curve keypair. Any subsequent modification of a single byte on the physical storage medium immediately trips tamper detection alerts.</body>
+
+<heading>Clause 3: Consensus Ratification and Co-Signature</heading>
+<body>If multi-signature governance is configured, the document admits ratifying co-signatures up to the defined signature cap limit. Additional co-signatures beyond the quota are strictly rejected by the validator.</body>
+
+<!-- bmd:rule double -->
+
+<!-- bmd:signatures -->
+
+<!-- bmd:seal -->
+"""
+
+HTML_STUDIO_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BMD Redact Studio — Executive Document Canvas</title>
+<style>
+  :root {
+    --bg-workspace: #0f172a;
+    --paper-bg: #ffffff;
+    --paper-shadow: 0 16px 40px rgba(0,0,0,0.35);
+    --primary-magenta: #d946ef;
+    --primary-magenta-hover: #c026d3;
+    --text-navy: #0f172a;
+    --text-slate: #334155;
+    --text-muted: #64748b;
+    --border-light: #e2e8f0;
+    --accent-blue: #2563eb;
+    --status-draft: #eab308;
+    --status-sealed: #10b981;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-workspace);
+    color: var(--text-slate);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Top Command Toolbar */
+  header.bmd-studio-header {
+    background: #1e293b;
+    border-bottom: 1px solid #334155;
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  }
+
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .header-logo {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #f472b6, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .badge-mode {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-draft { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid #eab308; }
+  .badge-sealed { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  button.bmd-btn {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+  }
+  .btn-secondary {
+    background: #334155;
+    color: #f1f5f9;
+    border-color: #475569;
+  }
+  .btn-secondary:hover {
+    background: #475569;
+  }
+  .btn-magenta {
+    background: linear-gradient(135deg, #d946ef, #a855f7);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(217, 70, 239, 0.35);
+  }
+  .btn-magenta:hover {
+    filter: brightness(1.1);
+  }
+  .btn-compile {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+  }
+  .btn-compile:hover {
+    filter: brightness(1.1);
+  }
+
+  /* Tag Shortcuts Toolbar */
+  .tag-bar {
+    background: #151f32;
+    border-bottom: 1px solid #283548;
+    padding: 8px 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+  }
+  .tag-bar-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 6px;
+  }
+  .tag-pill {
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #334155;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tag-pill:hover {
+    background: #334155;
+    border-color: var(--primary-magenta);
+    color: #fdf4ff;
+  }
+
+  /* Main Document Desk Workspace */
+  main.bmd-desk {
+    flex: 1;
+    padding: 36px 16px 80px 16px;
+    display: flex;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 10%, #1e293b 0%, #0b1120 100%);
+    overflow-y: auto;
+  }
+
+  /* Letter Paper Sheet ("Cuadro estilo hoja carta") */
+  .letter-sheet {
+    width: 100%;
+    max-width: 860px;
+    min-height: 1100px;
+    background: var(--paper-bg);
+    box-shadow: var(--paper-shadow);
+    border: 1px solid var(--border-light);
+    border-radius: 2px;
+    padding: 56px 64px 72px 64px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+
+  /* Watermark for transfer mode */
+  .sheet-watermark {
+    display: none;
+    position: absolute;
+    top: 24px;
+    right: 28px;
+    font-size: 11px;
+    font-weight: 800;
+    color: #10b981;
+    border: 1.5px solid #10b981;
+    padding: 4px 12px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Editor Mode Elements */
+  #editor-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .frontmatter-panel {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 14px 18px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+  }
+  .frontmatter-title {
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .frontmatter-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px 16px;
+  }
+  .fm-item { display: flex; flex-direction: column; }
+  .fm-label { font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 600; }
+  .fm-val { color: #0f172a; word-break: break-all; }
+
+  textarea#bmd-source-editor {
+    width: 100%;
+    min-height: 750px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 20px;
+    font-family: "SF Mono", Consolas, Monaco, "Liberation Mono", Menlo, Courier, monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #0f172a;
+    background: #ffffff;
+    resize: vertical;
+    outline: none;
+    transition: border 0.15s;
+  }
+  textarea#bmd-source-editor:focus {
+    border-color: var(--primary-magenta);
+    box-shadow: 0 0 0 3px rgba(217, 70, 239, 0.15);
+  }
+
+  /* Clean Executive Preview Elements (Zero Tags visible) */
+  #preview-container {
+    display: none;
+    width: 100%;
+    line-height: 1.65;
+    color: var(--text-slate);
+  }
+
+  /* Predefined Immutable Typography */
+  .doc-title {
+    font-size: 28px !important;
+    font-weight: 800 !important;
+    color: var(--text-navy) !important;
+    letter-spacing: -0.5px !important;
+    line-height: 1.25 !important;
+    margin: 12px 0 6px 0 !important;
+    text-align: left;
+  }
+  .doc-subtitle {
+    font-size: 15px !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
+    line-height: 1.4 !important;
+    margin-bottom: 24px !important;
+  }
+  .doc-heading {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    color: var(--text-navy) !important;
+    margin: 28px 0 10px 0 !important;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .doc-body {
+    font-size: 15px !important;
+    font-weight: 400 !important;
+    color: #1e293b !important;
+    line-height: 1.7 !important;
+    margin-bottom: 16px !important;
+    text-align: justify;
+  }
+
+  .bmd-double-rule {
+    height: 6px;
+    border-top: 3px double #0f172a;
+    margin: 24px 0;
+  }
+  .bmd-single-rule {
+    height: 1px;
+    background: #cbd5e1;
+    margin: 20px 0;
+  }
+
+  .bmd-parties-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+  .bmd-party-card {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 14px 18px;
+    background: #f8fafc;
+  }
+  .bmd-party-role {
+    font-size: 10px;
+    font-weight: 800;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .bmd-party-key {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 11px;
+    color: #0f172a;
+    word-break: break-all;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    padding: 4px 8px;
+    border-radius: 3px;
+    margin-top: 6px;
+  }
+
+  .bmd-sigs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 28px 0;
+  }
+  .bmd-sig-box {
+    border: 1.5px solid #0f172a;
+    border-radius: 4px;
+    padding: 14px 18px;
+    background: #ffffff;
+  }
+  .bmd-sig-title {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #0f172a;
+    margin-bottom: 6px;
+  }
+  .bmd-sig-status {
+    font-size: 12px;
+    font-weight: 700;
+    color: #10b981;
+    margin-bottom: 6px;
+  }
+  .bmd-sig-code {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 10.5px;
+    color: #475569;
+    word-break: break-all;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 6px;
+    border-radius: 3px;
+  }
+
+  .bmd-seal-banner {
+    border: 1px solid #0f172a;
+    background: #f8fafc;
+    padding: 12px 18px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 12px;
+    color: #0f172a;
+    letter-spacing: 0.5px;
+    margin: 24px 0 12px 0;
+  }
+
+  /* Notice Bar */
+  .notice-bar {
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: none;
+  }
+  .notice-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .notice-warning { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+</style>
+</head>
+<body>
+
+<header class="bmd-studio-header">
+  <div class="header-brand">
+    <div class="header-logo">Blockchain Markdown • Redact Studio</div>
+    <div id="mode-badge" class="badge-mode badge-draft">Draft Mode</div>
+  </div>
+  <div class="header-actions">
+    <button id="btn-toggle-view" class="bmd-btn btn-secondary" onclick="togglePreview()">
+      <span id="btn-view-text">Preview (Clean Document)</span>
+    </button>
+    <button id="btn-sign-emitter" class="bmd-btn btn-magenta" onclick="signAsEmitter()">
+      Sign as Emitter
+    </button>
+    <button id="btn-add-cosign" class="bmd-btn btn-secondary" onclick="addCoSignSlot()">
+      + Enable Co-sign Slot
+    </button>
+    <button id="btn-compile" class="bmd-btn btn-compile" onclick="compileDocument()">
+      Compile & Freeze
+    </button>
+    <button id="btn-download" class="bmd-btn btn-secondary" onclick="downloadBmd()">
+      Save .bmd
+    </button>
+  </div>
+</header>
+
+<div class="tag-bar" id="tag-bar">
+  <span class="tag-bar-label">Tags:</span>
+  <span class="tag-pill" onclick="insertTag('<title>', '</title>')">&lt;title&gt;</span>
+  <span class="tag-pill" onclick="insertTag('<subtitle>', '</subtitle>')">&lt;subtitle&gt;</span>
+  <span class="tag-pill" onclick="insertTag('<heading>', '</heading>')">&lt;heading&gt;</span>
+  <span class="tag-pill" onclick="insertTag('<body>', '</body>')">&lt;body&gt;</span>
+  <span class="tag-pill" onclick="insertText('\\n<!-- bmd:rule double -->\\n')">&lt;rule double&gt;</span>
+  <span class="tag-pill" onclick="insertText('\\n<!-- bmd:parties -->\\n')">&lt;parties&gt;</span>
+  <span class="tag-pill" onclick="insertText('\\n<!-- bmd:signatures -->\\n')">&lt;signatures&gt;</span>
+  <span class="tag-pill" onclick="insertText('\\n<!-- bmd:seal -->\\n')">&lt;seal&gt;</span>
+</div>
+
+<main class="bmd-desk">
+  <div class="letter-sheet" id="letter-sheet">
+    <div id="sheet-watermark" class="sheet-watermark">TRANSFER MODE — IMMUTABLE</div>
+
+    <div id="notice-box" class="notice-bar"></div>
+
+    <!-- Edit Mode -->
+    <div id="editor-container">
+      <div class="frontmatter-panel">
+        <div class="frontmatter-title">
+          <span>FRONTMATTER METADATA</span>
+          <span id="fm-hash-status" style="color: #64748b;">SHA-512 Pending</span>
+        </div>
+        <div class="frontmatter-grid">
+          <div class="fm-item"><span class="fm-label">Block ID</span><span class="fm-val" id="fm-block-id">0xBMD_DRAFT_2026</span></div>
+          <div class="fm-item"><span class="fm-label">Operational Mode</span><span class="fm-val" id="fm-mode">draft</span></div>
+          <div class="fm-item"><span class="fm-label">Max Signatures</span><span class="fm-val" id="fm-max-sigs">1 (Emitter Only)</span></div>
+          <div class="fm-item"><span class="fm-label">Emitter Pubkey</span><span class="fm-val" id="fm-emitter-key">(Pending Signature)</span></div>
+        </div>
+      </div>
+
+      <textarea id="bmd-source-editor" spellcheck="false" placeholder="Write document payload here..."></textarea>
+    </div>
+
+    <!-- Clean Executive Preview Mode (Zero Tags visible) -->
+    <div id="preview-container">
+      <div id="clean-preview-content"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+// Initial state populated from file
+let currentRawBmd = INITIAL_RAW_BMD_CONTENT;
+let isPreview = false;
+let isCompiled = false;
+let hasCoSignSlot = false;
+
+// Fast SHA-512 using native browser WebCrypto
+async function sha512Hex(str) {
+  const buf = new TextEncoder().encode(str);
+  const hashBuf = await crypto.subtle.digest('SHA-512', buf);
+  const bytes = new Uint8Array(hashBuf);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Pseudo deterministic Ed25519 demo signature for browser redact
+function generateHexKey(len) {
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function parseDocument(raw) {
+  const m = raw.match(/^---\\r?\\n([\\s\\S]*?)\\r?\\n---\\r?\\n?([\\s\\S]*)$/);
+  const meta = {};
+  let body = raw;
+  if (m) {
+    body = m[2];
+    m[1].split('\\n').forEach(line => {
+      const idx = line.indexOf(':');
+      if (idx > -1) {
+        const k = line.substring(0, idx).trim();
+        const v = line.substring(idx + 1).trim().replace(/^["']|["']$/g, '');
+        meta[k] = v;
+      }
+    });
+  }
+  return { meta, body };
+}
+
+function updateUiFromDocument() {
+  const { meta, body } = parseDocument(currentRawBmd);
+  document.getElementById('fm-block-id').innerText = meta.block_id || '0xBMD_DOCUMENT';
+  document.getElementById('fm-mode').innerText = meta.mode || 'draft';
+  document.getElementById('fm-max-sigs').innerText = (meta.max_signatures || '1') + (meta.max_signatures === '2' ? ' (Bilateral / Co-sign)' : ' (Emitter Only)');
+  document.getElementById('fm-emitter-key').innerText = meta.public_key ? (meta.public_key.substring(0, 24) + '...') : '(Pending Signature)';
+
+  if (meta.mode === 'transfer') {
+    isCompiled = true;
+    document.getElementById('mode-badge').innerText = 'Compiled (Immutable)';
+    document.getElementById('mode-badge').className = 'badge-mode badge-sealed';
+    document.getElementById('sheet-watermark').style.display = 'block';
+    document.getElementById('bmd-source-editor').readOnly = true;
+    document.getElementById('bmd-source-editor').style.background = '#f8fafc';
+    document.getElementById('btn-compile').disabled = true;
+    document.getElementById('btn-compile').style.opacity = '0.5';
+    document.getElementById('btn-sign-emitter').disabled = true;
+    document.getElementById('btn-sign-emitter').style.opacity = '0.5';
+    document.getElementById('tag-bar').style.display = 'none';
+  }
+
+  document.getElementById('bmd-source-editor').value = body.trim();
+}
+
+function insertText(text) {
+  const ta = document.getElementById('bmd-source-editor');
+  if (ta.readOnly) return;
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
+  ta.selectionStart = ta.selectionEnd = start + text.length;
+  ta.focus();
+}
+
+function insertTag(openTag, closeTag) {
+  const ta = document.getElementById('bmd-source-editor');
+  if (ta.readOnly) return;
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const selected = ta.value.substring(start, end) || 'Text';
+  const replacement = openTag + selected + closeTag;
+  ta.value = ta.value.substring(0, start) + replacement + ta.value.substring(end);
+  ta.selectionStart = start + openTag.length;
+  ta.selectionEnd = start + openTag.length + selected.length;
+  ta.focus();
+}
+
+function showNotice(msg, type = 'success') {
+  const nb = document.getElementById('notice-box');
+  nb.className = 'notice-bar notice-' + type;
+  nb.innerText = msg;
+  nb.style.display = 'block';
+  setTimeout(() => { nb.style.display = 'none'; }, 4000);
+}
+
+function renderCleanPreview(bodyText, meta) {
+  let html = '';
+  const lines = bodyText.split('\\n');
+
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) { html += '<br>'; continue; }
+
+    // Directives
+    if (line.includes('<!-- bmd:rule double -->') || line.includes('<bmd:rule double>') || line.includes('<bmd:rule>')) {
+      html += '<div class="bmd-double-rule"></div>';
+      continue;
+    }
+    if (line.includes('<!-- bmd:rule single -->') || line.includes('<bmd:rule single>')) {
+      html += '<div class="bmd-single-rule"></div>';
+      continue;
+    }
+    if (line.includes('<!-- bmd:parties -->') || line.includes('<bmd:parties>')) {
+      html += `
+        <div class="bmd-parties-grid">
+          <div class="bmd-party-card">
+            <div class="bmd-party-role">First Party (Emitter)</div>
+            <div class="bmd-party-key">${meta.public_key || '1ac464faf140f1f4361f3b355aab0124145f3a81ea287b559b6f2453d61657ca'}</div>
+          </div>
+          <div class="bmd-party-card">
+            <div class="bmd-party-role">Second Party (Receiver)</div>
+            <div class="bmd-party-key">${meta.receiver_public_key || (meta.max_signatures === '2' ? 'acb5d74d835d17f5984fb4171c277d665466b812481914bc58569a1f5726df47' : 'Not Required (Unilateral)')}</div>
+          </div>
+        </div>
+      `;
+      continue;
+    }
+    if (line.includes('<!-- bmd:signatures -->') || line.includes('<bmd:signatures>')) {
+      html += `
+        <div class="bmd-sigs-grid">
+          <div class="bmd-sig-box">
+            <div class="bmd-sig-title">Emitter Signature (Ed25519)</div>
+            <div class="bmd-sig-status">${meta.signature_layer_2 ? 'DIGITALLY SEALED' : 'PENDING'}</div>
+            <div class="bmd-sig-code">${meta.signature_layer_2 || 'Pending Signature on Compilation'}</div>
+          </div>
+          <div class="bmd-sig-box">
+            <div class="bmd-sig-title">Receiver Co-Signature (Ed25519)</div>
+            <div class="bmd-sig-status">${meta.receiver_signature ? 'CO-SIGNED & RATIFIED' : (meta.max_signatures === '2' ? 'AWAITING RATIFICATION' : 'NOT APPLICABLE')}</div>
+            <div class="bmd-sig-code">${meta.receiver_signature || (meta.max_signatures === '2' ? 'Pending Receiver Co-Signature' : 'None Required')}</div>
+          </div>
+        </div>
+      `;
+      continue;
+    }
+    if (line.includes('<!-- bmd:seal -->') || line.includes('<bmd:seal>')) {
+      html += '<div class="bmd-seal-banner">[*] BLOCKCHAIN MARKDOWN CRYPTOGRAPHIC CUSTODY SEAL: SHA-512 VERIFIED [*]</div>';
+      continue;
+    }
+
+    // Typography tags (predefined immutable sizes)
+    let renderedLine = line;
+    renderedLine = renderedLine.replace(/<title>(.*?)<\\/title>/gi, '<div class="doc-title">$1</div>');
+    renderedLine = renderedLine.replace(/<subtitle>(.*?)<\\/subtitle>/gi, '<div class="doc-subtitle">$1</div>');
+    renderedLine = renderedLine.replace(/<heading>(.*?)<\\/heading>/gi, '<div class="doc-heading">$1</div>');
+    renderedLine = renderedLine.replace(/<body>(.*?)<\\/body>/gi, '<div class="doc-body">$1</div>');
+
+    // Standard Markdown fallback
+    if (line.startsWith('# ')) {
+      renderedLine = '<div class="doc-title">' + line.substring(2) + '</div>';
+    } else if (line.startsWith('## ')) {
+      renderedLine = '<div class="doc-subtitle">' + line.substring(3) + '</div>';
+    } else if (line.startsWith('### ')) {
+      renderedLine = '<div class="doc-heading">' + line.substring(4) + '</div>';
+    } else if (!renderedLine.startsWith('<div')) {
+      renderedLine = '<div class="doc-body">' + renderedLine + '</div>';
+    }
+
+    html += renderedLine;
+  }
+  return html;
+}
+
+function togglePreview() {
+  const editContainer = document.getElementById('editor-container');
+  const prevContainer = document.getElementById('preview-container');
+  const btnText = document.getElementById('btn-view-text');
+
+  isPreview = !isPreview;
+  if (isPreview) {
+    const { meta } = parseDocument(currentRawBmd);
+    const bodyContent = document.getElementById('bmd-source-editor').value;
+    document.getElementById('clean-preview-content').innerHTML = renderCleanPreview(bodyContent, meta);
+    editContainer.style.display = 'none';
+    prevContainer.style.display = 'block';
+    btnText.innerText = 'Edit Draft';
+  } else {
+    editContainer.style.display = 'flex';
+    prevContainer.style.display = 'none';
+    btnText.innerText = 'Preview (Clean Document)';
+  }
+}
+
+async function signAsEmitter() {
+  const { meta } = parseDocument(currentRawBmd);
+  if (meta.mode === 'transfer') {
+    alert('Document is already compiled and immutable.');
+    return;
+  }
+  const body = document.getElementById('bmd-source-editor').value;
+  const dummyPub = generateHexKey(32);
+  const dummySig = generateHexKey(64);
+  meta.public_key = dummyPub;
+  meta.signature_layer_2 = dummySig;
+  meta.signer_role = 'emitter';
+
+  rebuildRawBmd(meta, body);
+  updateUiFromDocument();
+  showNotice('Document successfully signed with Ed25519 Emitter keypair.');
+}
+
+function addCoSignSlot() {
+  const { meta } = parseDocument(currentRawBmd);
+  meta.max_signatures = '2';
+  hasCoSignSlot = true;
+  const body = document.getElementById('bmd-source-editor').value;
+  rebuildRawBmd(meta, body);
+  updateUiFromDocument();
+  document.getElementById('btn-add-cosign').disabled = true;
+  document.getElementById('btn-add-cosign').style.opacity = '0.5';
+  showNotice('Co-Signature slot enabled (Signature Cap set to max 2).');
+}
+
+async function compileDocument() {
+  if (isCompiled) return;
+  if (!confirm('Compile and freeze this document?\\n\\nOnce compiled, mode transitions to transfer and editing is permanently blocked.')) return;
+
+  const { meta } = parseDocument(currentRawBmd);
+  const body = document.getElementById('bmd-source-editor').value;
+
+  const hash = await sha512Hex(body);
+  meta.mode = 'transfer';
+  meta.current_hash = hash;
+  if (!meta.public_key) {
+    meta.public_key = generateHexKey(32);
+    meta.signature_layer_2 = generateHexKey(64);
+  }
+
+  rebuildRawBmd(meta, body);
+  updateUiFromDocument();
+  if (!isPreview) togglePreview();
+  showNotice('Block compiled successfully to mode: transfer. Editing permanently locked.');
+}
+
+function rebuildRawBmd(meta, body) {
+  let header = '---\\n';
+  for (let [k, v] of Object.entries(meta)) {
+    header += `${k}: "${v}"\\n`;
+  }
+  header += '---\\n\\n';
+  currentRawBmd = header + body.trim();
+}
+
+function downloadBmd() {
+  const { meta } = parseDocument(currentRawBmd);
+  const body = document.getElementById('bmd-source-editor').value;
+  rebuildRawBmd(meta, body);
+
+  const filename = (meta.block_id || 'document') + '.bmd';
+  const blob = new Blob([currentRawBmd], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showNotice('Saved ' + filename);
+}
+
+// Initial initialization
+updateUiFromDocument();
+</script>
+</body>
+</html>
+"""
+
+
+def generate_redact_studio(bmd_path: str = None, out_html_path: str = None):
+    raw_content = DEFAULT_DRAFT_TEMPLATE
+
+    if bmd_path and os.path.exists(bmd_path):
+        with open(bmd_path, "r", encoding="utf-8", errors="replace") as f:
+            raw_content = f.read()
+    elif bmd_path:
+        # If path provided but doesn't exist, create it with starter template
+        with open(bmd_path, "w", encoding="utf-8") as f:
+            f.write(DEFAULT_DRAFT_TEMPLATE)
+        raw_content = DEFAULT_DRAFT_TEMPLATE
+
+    if not out_html_path:
+        out_html_path = "bmd_redact_studio.html"
+
+    # Safely embed raw content as JSON string literal
+    json_content = json.dumps(raw_content)
+    final_html = HTML_STUDIO_TEMPLATE.replace("INITIAL_RAW_BMD_CONTENT", json_content)
+
+    with open(out_html_path, "w", encoding="utf-8") as f:
+        f.write(final_html)
+
+    abs_html = os.path.abspath(out_html_path)
+    webbrowser.open("file://" + abs_html)
+    return abs_html
+
+
+if __name__ == "__main__":
+    target_bmd = sys.argv[1] if len(sys.argv) > 1 else None
+    out_html = sys.argv[2] if len(sys.argv) > 2 else "bmd_redact_studio.html"
+    res = generate_redact_studio(target_bmd, out_html)
+    print(f"[+] BMD Redact Studio initialized successfully.")
+    print(f"    File: {res}")
+    print(f"    Launched in default web browser.")

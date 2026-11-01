@@ -1,0 +1,69 @@
+---
+block_id: "0xBMD_PROOF_OF_CONCEPT_2026"
+previous_hash: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+current_hash: "60dd7104d681f22d70f02488129b692152e46a3120e6b004b3c6a775a2fac8f6e632c7612ed9dc75a9455ec61e80b37bda803bc9d927a99195b8dbf477a9c22b"
+mode: "transfer"
+signer_role: "emisor"
+timestamp: 0
+public_key: "1ac464faf140f1f4361f3b355aab0124145f3a81ea287b559b6f2453d61657ca"
+signature_layer_2: "205f74f748bdd05beacb8d40f539d0b0f03b5924d34138d6976822f0fbd04c5a0eb1cd3b7379ff55ffe3566005acd9d51f2ff4c145db9d8beae036a5c2290002"
+receiver_public_key: "acb5d74d835d17f5984fb4171c277d665466b812481914bc58569a1f5726df47"
+receiver_signature: "d96a5bc888a2c14d7b03324ce3e58c90a47ef394573f23b8f912fc95ea77aabac2efa99aca865257ebdfcb9aa0326e824fa3a38ead118ac6a7239e2a3fbae206"
+payload_encrypted: false
+document_type: "declaration"
+jurisdiction: "International / Open Standard"
+require_cosigner: true
+co_sign_label: "Ratify and Co-Sign as Auditor"
+max_signatures: "2"
+---
+
+
+
+# Blockchain Markdown — Proof of Concept Document
+
+<!-- bmd:rule double -->
+
+This document is a formally structured proof-of-concept declaration, compiled and
+cryptographically sealed under the **Blockchain Markdown (.bmd) Protocol v2.1**.
+
+It demonstrates real, verifiable Ed25519 signatures and SHA-512 ledger hashing.
+This file is the canonical, tamper-evident record — the standalone HTML viewer
+derived from it is purely a rendering layer; the cryptographic truth lives here.
+
+<!-- bmd:parties -->
+
+<!-- bmd:rule single -->
+
+<!-- bmd:clause 1 Purpose and Scope -->
+
+This block serves as a live demonstration of the Blockchain Markdown immutability
+protocol. Once compiled, no character of the payload may be altered without
+invalidating the SHA-512 ledger hash and Ed25519 digital signature.
+
+<!-- bmd:clause 2 Cryptographic Standards Applied -->
+
+| Standard | Algorithm | Purpose |
+| :--- | :--- | :--- |
+| **Payload Integrity** | SHA-512 (128 hex chars) | Tamper-evident content lock |
+| **Identity & Signing** | Ed25519 Elliptic Curve | Non-repudiation of authorship |
+| **Key Generation** | RFC 8032 seed derivation | Deterministic keypair from 32-byte seed |
+| **Co-Signature** | Ed25519 (second party) | Bilateral consensus ratification |
+
+<!-- bmd:clause 3 Immutability Guarantee -->
+
+Upon compilation to `mode: transfer`, the following actions become permanently
+forbidden by the engine:
+
+- Editing any byte of the payload
+- Altering any frontmatter field
+- Adding, removing, or modifying signatures beyond the `max_signatures` cap
+- Forking this block (a new block with a new `block_id` must be created instead)
+
+The document is rendered in a standalone zero-dependency HTML file that can be
+verified in any modern browser without installing any software, library, or runtime.
+
+<!-- bmd:rule double -->
+
+<!-- bmd:signatures -->
+
+<!-- bmd:seal -->

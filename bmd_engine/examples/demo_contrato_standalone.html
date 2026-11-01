@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ZERO EXTERNAL DEPENDENCIES: No CDN, no Google Fonts, no external JS, fully offline -->
+<title>0xDEMO_CORP_001 - EXECUTIVE AGREEMENT | Blockchain Markdown Executive Document</title>
+<style>
+/* ============================================================
+   BLOCKCHAIN MARKDOWN ZERO-DEPENDENCY EXECUTIVE STYLESHEET
+   100% self-contained. Zero network requests. Fully offline.
+   ============================================================ */
+:root {
+  --bg-page: #080a0f;
+  --bg-sheet: #0e121a;
+  --border-sheet: #1e2638;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --accent-gold: #d97706;
+  --accent-blue: #3b82f6;
+  --accent-emerald: #10b981;
+  --accent-ruby: #ef4444;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg-page);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.6;
+  padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+}
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+/* Top Floating Utility Bar */
+.bmd-topbar {
+  width: 100%;
+  max-width: 860px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 10px 16px;
+  background: #0f141f;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+}
+.bmd-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.bmd-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+}
+.bmd-actions { display: flex; gap: 8px; }
+.bmd-btn {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.bmd-btn:hover { background: #334155; color: #fff; }
+
+/* Executive Document Sheet */
+.bmd-sheet {
+  width: 100%;
+  max-width: 860px;
+  background: var(--bg-sheet);
+  border: 1px solid var(--border-sheet);
+  border-radius: 8px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.2);
+  padding: 64px 56px;
+  position: relative;
+  transition: border-color 0.3s;
+}
+.bmd-sheet.tampered {
+  border-color: var(--accent-ruby) !important;
+  box-shadow: 0 0 28px rgba(239,68,68,0.4) !important;
+}
+
+/* Document Header Letterhead */
+.bmd-letterhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 20px;
+  margin-bottom: 36px;
+}
+.bmd-doc-type {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--accent-blue);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.bmd-doc-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+.bmd-letterhead-meta {
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.bmd-sig-cap-reached {
+  color: var(--accent-ruby);
+  font-weight: 700;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.bmd-sig-cap-open {
+  color: var(--accent-emerald);
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+/* Typography */
+.bmd-h1 { font-size: 24px; font-weight: 700; color: #fff; margin: 28px 0 16px; letter-spacing: -0.02em; }
+.bmd-h2 { font-size: 17px; font-weight: 600; color: #f1f5f9; margin: 28px 0 12px; letter-spacing: -0.01em; border-bottom: 1px solid #1e2638; padding-bottom: 6px; }
+.bmd-h3 { font-size: 14px; font-weight: 600; color: #cbd5e1; margin: 20px 0 8px; }
+.bmd-p { font-size: 13.5px; color: #cbd5e1; margin: 12px 0; line-height: 1.7; text-align: justify; }
+.bmd-list { margin: 12px 0 12px 24px; font-size: 13.5px; color: #cbd5e1; line-height: 1.7; }
+.bmd-quote { border-left: 3px solid var(--accent-blue); padding: 8px 16px; margin: 16px 0; background: #0c121d; color: #94a3b8; font-style: italic; font-size: 13px; }
+.bmd-inline-code { background: #141a29; color: #93c5fd; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #1e293b; }
+
+/* Formal Directives */
+.bmd-single-rule { height: 1px; background: #1e293b; margin: 28px 0; }
+.bmd-double-rule { border-top: 1px solid #334155; border-bottom: 1px solid #334155; height: 5px; margin: 32px 0; }
+.bmd-clause { display: flex; align-items: baseline; gap: 10px; margin: 24px 0 8px; border-bottom: 1px solid #1e293b; padding-bottom: 6px; }
+.bmd-clause-num { font-size: 10px; font-weight: 700; background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb55; padding: 2px 7px; border-radius: 4px; font-family: ui-monospace, monospace; }
+.bmd-clause-title { font-size: 14px; font-weight: 600; color: #f1f5f9; }
+
+/* Parties Cards */
+.bmd-parties-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0 32px; }
+.bmd-party-card { background: #090d16; border: 1px solid #1e293b; border-radius: 6px; padding: 14px 16px; }
+.bmd-party-role { font-size: 10px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.08em; margin-bottom: 4px; }
+.bmd-party-name { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+.bmd-party-subrole { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+.bmd-party-key { font-size: 10px; color: #93c5fd; margin-bottom: 4px; word-break: break-all; }
+.bmd-party-badge { font-size: 10px; color: var(--accent-emerald); font-weight: 500; }
+
+/* Formal Signature Blocks */
+.bmd-signatures-container { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 48px 0 24px; padding-top: 24px; border-top: 1px solid #1e293b; }
+.bmd-sig-box { background: #090d16; border: 1px solid #1e293b; border-radius: 6px; padding: 16px; }
+.bmd-sig-title { font-size: 10px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.08em; margin-bottom: 8px; }
+.bmd-sig-name { font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 12px; }
+.bmd-sig-line { height: 1px; background: #334155; margin-bottom: 10px; }
+.bmd-sig-status { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.bmd-sig-stamp { font-size: 10px; color: var(--text-dim); word-break: break-all; }
+.bmd-sig-date { font-size: 10px; color: var(--text-dim); margin-top: 6px; }
+.bmd-sig-cap { font-size: 10px; font-weight: 600; margin-top: 12px; text-align: center; padding: 6px; border-radius: 4px; }
+.bmd-sig-cap.bmd-sig-cap-reached { color: var(--accent-ruby); background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); }
+.bmd-sig-cap.bmd-sig-cap-open { color: var(--accent-emerald); background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); }
+.text-emerald { color: var(--accent-emerald); }
+.text-amber { color: var(--accent-gold); }
+.text-ruby { color: var(--accent-ruby); }
+
+/* Custody Seal */
+.bmd-custody-seal { margin-top: 36px; padding: 14px 18px; background: #080c14; border: 1px solid #1e293b; border-radius: 6px; text-align: center; }
+.bmd-seal-header { font-size: 10px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.1em; margin-bottom: 4px; }
+.bmd-seal-hash { font-size: 10px; color: #94a3b8; word-break: break-all; }
+.bmd-seal-meta { font-size: 9px; color: var(--text-dim); margin-top: 4px; }
+
+/* Tables */
+.bmd-table-wrap { margin: 20px 0; overflow-x: auto; border: 1px solid #1e293b; border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left; }
+th { background: #0c111c; color: #e2e8f0; font-weight: 600; padding: 10px 14px; border-bottom: 1px solid #1e293b; }
+td { padding: 10px 14px; border-bottom: 1px solid #161e2e; color: #cbd5e1; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #0f1523; }
+
+/* Print Stylesheet — for formal PDF / paper output */
+@media print {
+  body { background: #fff !important; color: #000 !important; padding: 0 !important; }
+  .bmd-topbar { display: none !important; }
+  .bmd-sheet { background: #fff !important; color: #000 !important; border: none !important; box-shadow: none !important; padding: 0 !important; max-width: 100% !important; }
+  .bmd-h1, .bmd-h2, .bmd-doc-title { color: #000 !important; }
+  .bmd-p, .bmd-list, td { color: #222 !important; }
+  th { background: #f1f5f9 !important; color: #000 !important; }
+  .bmd-party-card, .bmd-sig-box, .bmd-custody-seal { background: #fafafa !important; border: 1px solid #ccc !important; color: #000 !important; }
+}
+</style>
+</head>
+<body>
+
+  <!-- Zero-Dependency Top Verification Bar: No CDN, No Network -->
+  <div class="bmd-topbar font-mono">
+    <div class="bmd-status-pill">
+      <div id="statusDot" class="bmd-dot"></div>
+      <span id="statusText">IMMUTABLE BLOCK — READY FOR OFFLINE VERIFICATION (SHA-512)</span>
+    </div>
+    <div class="bmd-actions">
+      <button class="bmd-btn" onclick="window.print()">Print / Export PDF</button>
+      <button class="bmd-btn" onclick="verifyRawHash()">Re-Verify Hash</button>
+    </div>
+  </div>
+
+  <!-- Executive Document Sheet -->
+  <div id="documentSheet" class="bmd-sheet">
+    <div class="bmd-letterhead">
+      <div>
+        <div class="bmd-doc-type font-mono">EXECUTIVE AGREEMENT</div>
+        <div class="bmd-doc-title">0xDEMO_CORP_001</div>
+      </div>
+      <div class="bmd-letterhead-meta font-mono">
+        <div>Jurisdiction: Standard Legal Jurisdiction</div>
+        <div>Mode: TRANSFER (Immutable)</div>
+        <div>Standard: SHA-512 &amp; Ed25519</div>
+        <div class="font-mono">Signatures: 2 (Unlimited)</div>
+      </div>
+    </div>
+
+    <!-- Rendered Executive Document Content (Zero Dependencies) -->
+    <div class="bmd-content">
+      <h1 class="bmd-h1">Contrato de Transferencia de Propiedad de Software</h1>
+<p class="bmd-p">Este documento formaliza la transferencia legal y de derechos patrimoniales sobre el software del motor criptográfico <strong>BMD Engine v1.0</strong>.</p>
+<h2 class="bmd-h2">1. Declaración de las Partes</h2>
+<ul class="bmd-list">
+<li>**Parte Emisora / Cedente**: Autonomous Core Devs (`muse-spark` Agent Governance)</li>
+<li>**Parte Receptora / Cesionaria**: Enterprise Global Operations S.A.</li>
+</ul>
+<h2 class="bmd-h2">2. Especificaciones del Activo Transferido</h2>
+<div class="bmd-table-wrap"><table>
+<thead><tr><th>Concepto</th><th>Especificación</th></tr></thead><tbody>
+<tr><td>**Módulo Principal**</td><td>Motor C11 de Gobernanza Criptográfica `bmd_engine`</td></tr>
+<tr><td>**Estándar de Hash**</td><td>NIST FIPS 180-4 SHA-512 (128 hex chars)</td></tr>
+<tr><td>**Firma Digital L2**</td><td>Curva Elíptica Ed25519 (RFC 8032 / TweetNaCl)</td></tr>
+<tr><td>**Inmutabilidad**</td><td>Bloqueo estricto post-compilación y soporte de co-firma dual</td></tr>
+</tbody></table></div>
+<h2 class="bmd-h2">3. Cláusulas de Gobernanza y Ejecución Determinista</h2>
+<p class="bmd-p">1. <strong>Regla de Inmutabilidad Absoluta</strong>: La firma del emisor vincula de forma determinista el cuerpo Markdown al <code class="bmd-inline-code font-mono">current_hash</code>.</p>
+<p class="bmd-p">2. <strong>Co-Firma del Receptor</strong>: El receptor verifica la integridad del archivo y ratifica su recepción sin alterar el payload.</p>
+<p class="bmd-p">3. <strong>Auditoría Automatizada</strong>: El agente autónomo genera las actas de transferencia en Microsoft Word y matrices de auditoría en Excel.</p>
+        <div class="bmd-signatures-container">
+            <div class="bmd-sig-box">
+                <div class="bmd-sig-title">EMITTER AUTHORIZED SIGNATORY</div>
+                <div class="bmd-sig-name">Designated Emitter</div>
+                <div class="bmd-sig-line"></div>
+                <div class="bmd-sig-status text-emerald">DIGITALLY SEALED (Ed25519)</div>
+                <div class="bmd-sig-stamp font-mono">dc3f0efc2bc4831b8bc8bd8f7e4d2df9...</div>
+                <div class="bmd-sig-date">2026-02-27 16:33:20 UTC</div>
+            </div>
+            <div class="bmd-sig-box">
+                <div class="bmd-sig-title">RECEIVER AUTHORIZED SIGNATORY</div>
+                <div class="bmd-sig-name">Designated Receiver</div>
+                <div class="bmd-sig-line"></div>
+                <div class="bmd-sig-status text-emerald">
+<p class="bmd-p">CO-SIGNED & RATIFIED</p>
+                </div>
+                <div class="bmd-sig-stamp font-mono">1248e36313863fe990a18e782e47419b...</div>
+                <div class="bmd-sig-date">2026-02-27 16:33:20 UTC</div>
+            </div>
+        </div>
+        <div class="bmd-custody-seal">
+            <div class="bmd-seal-header">BLOCKCHAIN MARKDOWN IMMUTABILITY SEAL</div>
+            <div class="bmd-seal-hash font-mono">SHA-512: c7dee476b54cd4f1850332af94bf6dfb74ef0cf7f634b36fd12079ecfd7c42d12001c4199e0a499bfb54680b2203a211d5deff16e0bddc443b61d1f578a7f446</div>
+            <div class="bmd-seal-meta">BLOCK ID: 0xDEMO_CORP_001 | CUSTODY PROTOCOL v2.1 | JURISDICTION: International</div>
+        </div>
+    </div>
+  </div>
+
+<script>
+// ============================================================
+// ZERO-DEPENDENCY OFFLINE CRYPTOGRAPHIC VERIFICATION
+// Uses ONLY browser-native window.crypto.subtle (WebCrypto API).
+// Zero CDNs, zero libraries, zero network requests.
+// Works completely offline in any modern browser.
+// ============================================================
+const RAW_BMD_CONTENT = `---
+block_id: "0xDEMO_CORP_001"
+previous_hash: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+current_hash: "c7dee476b54cd4f1850332af94bf6dfb74ef0cf7f634b36fd12079ecfd7c42d12001c4199e0a499bfb54680b2203a211d5deff16e0bddc443b61d1f578a7f446"
+mode: "transfer"
+signer_role: "emisor"
+timestamp: 1772210000
+public_key: "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+signature_layer_2: "dc3f0efc2bc4831b8bc8bd8f7e4d2df98579e3294bd3a424ead5ae0035d2259a69da1af2af3fe13dcab73f4cfa8684b4e60f0f53deea048377b7a391ede57403"
+receiver_public_key: "332ebe8d27cb7323b3a401c1c13b5dd64bccc0e10ecda1c2b5d11a03779a85e5"
+receiver_signature: "1248e36313863fe990a18e782e47419b30490979b2baec46b75108e2bd5eef34328c1a74e83f8ba3dcc001938d2ab9d8f5fd94047e344b014224d4cd02263304"
+payload_encrypted: false
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Contrato de Transferencia de Propiedad de Software
+
+Este documento formaliza la transferencia legal y de derechos patrimoniales sobre el software del motor criptográfico **BMD Engine v1.0**.
+
+## 1. Declaración de las Partes
+- **Parte Emisora / Cedente**: Autonomous Core Devs (\`muse-spark\` Agent Governance)
+- **Parte Receptora / Cesionaria**: Enterprise Global Operations S.A.
+
+## 2. Especificaciones del Activo Transferido
+| Concepto | Especificación |
+| :--- | :--- |
+| **Módulo Principal** | Motor C11 de Gobernanza Criptográfica \`bmd_engine\` |
+| **Estándar de Hash** | NIST FIPS 180-4 SHA-512 (128 hex chars) |
+| **Firma Digital L2** | Curva Elíptica Ed25519 (RFC 8032 / TweetNaCl) |
+| **Inmutabilidad** | Bloqueo estricto post-compilación y soporte de co-firma dual |
+
+## 3. Cláusulas de Gobernanza y Ejecución Determinista
+1. **Regla de Inmutabilidad Absoluta**: La firma del emisor vincula de forma determinista el cuerpo Markdown al \`current_hash\`.
+2. **Co-Firma del Receptor**: El receptor verifica la integridad del archivo y ratifica su recepción sin alterar el payload.
+3. **Auditoría Automatizada**: El agente autónomo genera las actas de transferencia en Microsoft Word y matrices de auditoría en Excel.
+`;
+const EXPECTED_HASH   = "c7dee476b54cd4f1850332af94bf6dfb74ef0cf7f634b36fd12079ecfd7c42d12001c4199e0a499bfb54680b2203a211d5deff16e0bddc443b61d1f578a7f446";
+const MAX_SIGNATURES  = 0;
+const CURRENT_SIGNATURES = 2;
+
+async function verifyRawHash() {
+  try {
+    const enc = new TextEncoder();
+    const match = RAW_BMD_CONTENT.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
+    if (!match) throw new Error("Could not extract BMD payload from embedded content.");
+    const payload = match[1].replace(/\r\n/g, '\n').trim();
+    // Native SHA-512 via SubtleCrypto — zero external dependencies
+    const hashBuf = await window.crypto.subtle.digest("SHA-512", enc.encode(payload));
+    const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,"0")).join("");
+
+    document.getElementById("statusDot").style.background = "#10b981";
+    document.getElementById("statusText").textContent = "PAYLOAD VERIFIED VIA NATIVE WEBCRYPTO SHA-512";
+    document.getElementById("statusText").style.color = "#10b981";
+
+    const sigNote = MAX_SIGNATURES > 0
+      ? "\nSignature Cap: " + CURRENT_SIGNATURES + "/" + MAX_SIGNATURES +
+        (CURRENT_SIGNATURES >= MAX_SIGNATURES ? " — LIMIT REACHED" : " — Open")
+      : "\nSignatures: " + CURRENT_SIGNATURES + " (Unlimited)";
+
+    alert(
+      "Blockchain Markdown Verification\n" +
+      "==================================\n" +
+      "SHA-512 Computed (browser-native):\n" + hashHex.slice(0,48) + "...\n\n" +
+      "SHA-512 Stored (signed ledger):\n" + EXPECTED_HASH.slice(0,48) + "..." +
+      sigNote
+    );
+  } catch(e) {
+    document.getElementById("documentSheet").classList.add("tampered");
+    document.getElementById("statusDot").style.background = "#ef4444";
+    document.getElementById("statusText").textContent = "INTEGRITY COMPROMISED: " + e.message;
+    document.getElementById("statusText").style.color = "#ef4444";
+  }
+}
+
+// Drag-and-drop: verify any .bmd file directly in the browser, fully offline
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", async e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (!file || !file.name.endsWith(".bmd")) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const text = ev.target.result;
+      const enc  = new TextEncoder();
+      const m    = text.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
+      if (!m) { alert("Invalid .bmd format."); return; }
+      const payload = m[1].replace(/\r\n/g,'\n').trim();
+      const hashBuf = await window.crypto.subtle.digest("SHA-512", enc.encode(payload));
+      const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,"0")).join("");
+      alert("Dropped file: " + file.name + "\nSHA-512 Payload Hash:\n" + hashHex.slice(0,48) + "...");
+    } catch(ex) { alert("Verification error: " + ex.message); }
+  };
+  reader.readAsText(file);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+---
+block_id: "0xDEMO_CORP_001"
+previous_hash: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+current_hash: "971bdd735979457dbd82725cb896aded4acd6a4c5bd87c76a9f06f5a833e91332405f8ae3995bc5a76c50dc29e3debcf87541dbb36f24fa722dedc7243164cb5"
+mode: "transfer"
+signer_role: "emisor"
+timestamp: 1793514875
+public_key: "20c3e7f63b55bf84c70b9397f5c0968b8f29d69a8b0cafd5571b9b2aec216889"
+signature_layer_2: "e6272e925e12f5f3cf7f639d17b497dd06aa47627dbb659785170524184078022f3eb822e560251e6aaa936b73bd21f17a9adbc377d0715a29d9978765945e0d"
+payload_encrypted: false
+document_type: "contract"
+require_cosigner: true
+max_signatures: "2"
+---
+
+
+# Contrato de Transferencia de Propiedad de Codigo
+
+Este documento certifica la transferencia legal del modulo `bmd_engine`
+del emisor al receptor, con validez criptografica e inmutabilidad matematica.
+
+## Terminos del Contrato
+- Valor: $50,000 USD
+- Activo: Motor criptografico BMD Engine v2.1.0 (C11, Ed25519)
+- Fecha: 2026-10-29
+- Jurisdiccion: Estandar internacional RFC 8032 / NIST FIPS 180-4
+
+## Clausulas de Gobernanza del Agente
+1. El Agente Autonomo `muse-spark` valida la firma antes de ejecutar
+2. Una vez en modo TRANSFER: el documento es INMUTABLE
+3. Cualquier modificacion invalida la firma automaticamente

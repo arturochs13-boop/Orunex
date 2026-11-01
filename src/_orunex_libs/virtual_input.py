@@ -1008,7 +1008,12 @@ def find_tradingview_window() -> Optional[WindowInfo]:
     window = find_window(exe="TradingView.exe")
     if window:
         return window
-    return find_window(title=("TradingView",), include_tool_windows=True)
+    # MSIX packages may run under a different exe name; fall back to
+    # searching by common TradingView window titles.
+    return find_window(
+        title=("TradingView", "BTCUSDT", "USDT", "Unnamed"),
+        include_tool_windows=True,
+    )
 
 
 def get_foreground_window() -> int:

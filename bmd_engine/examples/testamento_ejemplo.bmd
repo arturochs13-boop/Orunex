@@ -1,0 +1,34 @@
+---
+block_id: "0xWILL_ANON_TESTAMENT_001"
+previous_hash: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+current_hash: "217d1466e0d0b7bdc9c5f6e7bf41696a90ccace165c840ff2cda4a01970879ed4472a78fee233bf70c4ada868b7142605d92c37d3ee6028c31e8658301d670d7"
+mode: "transfer"
+signer_role: "emisor"
+timestamp: 1772306000
+public_key: "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+signature_layer_2: "d3932e81507a2fb4f64e8fb9159c4da5d94fe7b1ec4af234181f3d1119f109525ba6a4c49e6363b9e691dfd17d550cff6d337186ef25847845a4ae567a38b10a"
+payload_encrypted: false
+---
+
+
+# Declaración Unilateral de Última Voluntad y Custodia
+
+Este documento constituye una declaración irrevocable de voluntad, preservada bajo el protocolo **Blockchain Markdown (.bmd)** mediante sellado criptográfico **SHA-512** y firma digital sobre curva elíptica **Ed25519**.
+
+---
+
+## 1. Disposición General
+El titular y firmante legítimo de la clave privada asociada a este bloque manifiesta su libre decisión sobre la asignación de sus bienes, proyectos de código abierto y archivos digitales.
+
+## 2. Asignación de Bienes y Proyectos
+
+| Categoría | Descripción del Activo | Destinatario / Instrucción |
+| :--- | :--- | :--- |
+| **Repositorios de Software** | Código fuente del motor de cómputo y scripts de automatización | Liberación pública bajo licencia MIT |
+| **Biblioteca y Documentos** | Notas de investigación, archivos de texto y material de estudio | Archivo y preservación digital comunitaria |
+| **Equipos Físicos** | Estaciones de trabajo y dispositivos de laboratorio | Donación a estudiantes e instituciones educativas |
+
+## 3. Cláusula de Intangibilidad Criptográfica
+- La integridad de este texto está protegida por un resumen matemático inmutable.
+- Si una sola palabra, coma o porcentaje es alterado tras la firma del autor, la verificación del bloque fallará de inmediato.
+- Cualquier copia exacta de este archivo posee idéntica validez probatoria.

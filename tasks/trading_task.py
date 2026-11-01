@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import threading
 import time
 import uuid
@@ -30,6 +31,7 @@ from core.config import Settings, get_settings
 from core.events import BRAIN, FAISS, META, SIMPLEX, TRADING, TRADINGVIEW, EventBus
 from core.faiss_memory import FAISSMemory
 from core.meta_api import MetaAPIClient
+from core.trade_intent import is_explicit_entry_request, symbol_from_title
 from tasks.base import TaskResult, TaskState
 
 DECISION_SCHEMA = (
@@ -42,6 +44,36 @@ DECISION_SYSTEM = (
     "paper-trading mode. Analyse the supplied market snapshot, the chart and "
     "recalled strategies. Prefer HOLD over a weak trade. Any BUY/SELL must "
     "include a coherent stop_loss and take_profit. Never promise profit."
+)
+EXPLICIT_DECISION_SCHEMA = (
+    '{"action": "BUY|SELL", "symbol": str, "entry": number, '
+    '"stop_loss": number, "take_profit": number, "confidence": 0.0, '
+    '"rationale": str, "strategy_refs": [str]}'
+)
+EXPLICIT_DECISION_SYSTEM = (
+    "You are Muse, a disciplined trading analyst operating ONLY in "
+    "paper-trading mode. The user has given an explicit paper-entry order, "
+    "so HOLD and REJECT are not available actions. Read the chart and choose "
+    "BUY or SELL. Use the live chart price as entry and visible support or "
+    "resistance for stop_loss and take_profit. If the setup is not ideal, "
+    "choose the side with the clearest invalidation and a tight stop. "
+    "Confidence is your calibrated conviction in the side you chose, not the "
+    "probability of profit; the explicit-order execution floor is 0.50, so a "
+    "readable chart with a clear invalidation should score at or above it. "
+    "Never promise profit."
+)
+EXPLICIT_EXECUTION_NOTE = (
+    "\nEXPLICIT USER EXECUTION ORDER: the user ordered a paper entry now. "
+    "HOLD and REJECT are not available actions. Choose BUY or SELL from the "
+    "chart evidence. Use the live chart price as entry and visible "
+    "support/resistance for stop_loss/take_profit. Never promise profit.\n"
+)
+EXPLICIT_RETRY_NOTE = (
+    "\nCORRECTION: your previous answer was not an executable entry. That is "
+    "invalid for this explicit order. Re-read the chart and return BUY or "
+    "SELL with a coherent stop_loss and take_profit. HOLD and REJECT are not "
+    "allowed. The explicit-order confidence floor is 0.50; score your "
+    "calibrated conviction in the chosen side. Return only the JSON object.\n"
 )
 
 
@@ -101,6 +133,13 @@ class PaperOrder:
     status: str = "OPEN"
     opened_at: float = field(default_factory=time.time)
     rationale: str = ""
+    # Execution provenance.  ``ui_verified`` is only true after the native
+    # TradingView paper ticket was visually confirmed by the GUI agent.
+    source: str = "paper_engine"
+    ui_verified: bool = False
+    ui_reference: str = ""
+    ui_price: float = 0.0
+    ui_error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return dict(vars(self))
@@ -135,48 +174,163 @@ class PaperTradingEngine:
             quantity = max_notional / float(entry)
         return round(float(quantity), 6)
 
-    def execute(self, decision: dict[str, Any]) -> PaperOrder:
+    def _prepare_locked(
+        self, decision: dict[str, Any], *, quantity: float | None = None
+    ) -> tuple[str, str, float, float, float, float]:
+        """Validate a decision and return the exact values to persist."""
+        if self.kill_switch:
+            raise RuntimeError("Paper trading kill switch is active.")
+        side = str(decision.get("action") or "").upper()
+        entry = float(decision["entry"]); stop = float(decision["stop_loss"])
+        take = float(decision["take_profit"])
+        if side not in {"BUY", "SELL"}:
+            raise ValueError(f"Action {side!r} is not executable.")
+        if entry <= 0 or stop <= 0 or take <= 0:
+            raise ValueError("Entry, stop_loss and take_profit must be positive.")
+        if side == "BUY" and not (stop < entry < take):
+            raise ValueError("BUY requires stop_loss < entry < take_profit.")
+        if side == "SELL" and not (take < entry < stop):
+            raise ValueError("SELL requires take_profit < entry < stop_loss.")
+        symbol = canonical_symbol(decision.get("symbol") or "UNKNOWN")
+        existing = self.find_open_order(
+            symbol,
+            side,
+            max_age_s=float(self.settings.paper_duplicate_window_s),
+        )
+        if existing is not None:
+            raise DuplicatePaperOrderError(existing)
+        if quantity is None:
+            quantity = self.position_size(entry, stop)
+        quantity = round(float(quantity), 6)
+        if quantity <= 0:
+            raise ValueError("Computed position size is zero; trade rejected.")
+        return side, symbol, entry, stop, take, quantity
+
+    def _create_locked(
+        self,
+        decision: dict[str, Any],
+        *,
+        quantity: float | None = None,
+        status: str = "OPEN",
+        source: str = "paper_engine",
+    ) -> PaperOrder:
+        side, symbol, entry, stop, take, quantity = self._prepare_locked(
+            decision, quantity=quantity
+        )
+        order = PaperOrder(
+            order_id="PAPER-" + uuid.uuid4().hex[:10].upper(),
+            symbol=symbol,
+            side=side, quantity=quantity, entry=entry,
+            stop_loss=stop, take_profit=take,
+            rationale=str(decision.get("rationale") or "")[:500],
+            status=status,
+            source=source,
+        )
+        self.orders[order.order_id] = order
+        self._save_locked()
+        return order
+
+    def execute(
+        self, decision: dict[str, Any], *, quantity: float | None = None
+    ) -> PaperOrder:
         """Open a simulated position after hard risk validation."""
         with self._lock:
-            if self.kill_switch:
-                raise RuntimeError("Paper trading kill switch is active.")
-            side = str(decision.get("action") or "").upper()
-            entry = float(decision["entry"]); stop = float(decision["stop_loss"])
-            take = float(decision["take_profit"])
-            if side not in {"BUY", "SELL"}:
-                raise ValueError(f"Action {side!r} is not executable.")
-            if entry <= 0 or stop <= 0 or take <= 0:
-                raise ValueError("Entry, stop_loss and take_profit must be positive.")
-            if side == "BUY" and not (stop < entry < take):
-                raise ValueError("BUY requires stop_loss < entry < take_profit.")
-            if side == "SELL" and not (take < entry < stop):
-                raise ValueError("SELL requires take_profit < entry < stop_loss.")
-            symbol = canonical_symbol(decision.get("symbol") or "UNKNOWN")
-            existing = self.find_open_order(
-                symbol,
-                side,
-                max_age_s=float(self.settings.paper_duplicate_window_s),
-            )
-            if existing is not None:
-                raise DuplicatePaperOrderError(existing)
-            quantity = self.position_size(entry, stop)
-            if quantity <= 0:
-                raise ValueError("Computed position size is zero; trade rejected.")
-            order = PaperOrder(
-                order_id="PAPER-" + uuid.uuid4().hex[:10].upper(),
-                symbol=symbol,
-                side=side, quantity=quantity, entry=entry,
-                stop_loss=stop, take_profit=take,
-                rationale=str(decision.get("rationale") or "")[:500],
-            )
-            self.orders[order.order_id] = order
-            self._save_locked()
+            order = self._create_locked(decision, quantity=quantity, status="OPEN")
         self._log(
-            f"{order.order_id} {side} {quantity} {order.symbol} @ {entry} "
-            f"(SL {stop} / TP {take})",
+            f"{order.order_id} {order.side} {order.quantity} {order.symbol} "
+            f"@ {order.entry} (SL {order.stop_loss} / TP {order.take_profit})",
             nxt=SIMPLEX,
         )
         return order
+
+    def reserve(
+        self, decision: dict[str, Any], *, quantity: float | None = None
+    ) -> PaperOrder:
+        """Create a PENDING_UI order while the GUI fills the paper ticket.
+
+        The order is not treated as open until :meth:`confirm_ui` sees the
+        position in TradingView.  Reserving first prevents a retry from
+        submitting the same order twice while the GUI is still working.
+        """
+        with self._lock:
+            return self._create_locked(
+                decision,
+                quantity=quantity,
+                status="PENDING_UI",
+                source="tradingview_gui",
+            )
+
+    def confirm_ui(
+        self,
+        order: PaperOrder,
+        *,
+        reference: str = "",
+        price: float = 0.0,
+        verified: bool = True,
+    ) -> PaperOrder:
+        """Promote a reserved order to OPEN after visual UI confirmation."""
+        with self._lock:
+            if order.order_id not in self.orders:
+                raise KeyError(f"Unknown paper order {order.order_id}")
+            order.status = "OPEN"
+            order.ui_verified = bool(verified)
+            order.ui_reference = str(reference or "")[:120]
+            if price and float(price) > 0:
+                order.ui_price = round(float(price), 8)
+            order.ui_error = ""
+            self._save_locked()
+        self._log(
+            f"{order.order_id} {order.side} {order.quantity} {order.symbol} "
+            f"@ {order.entry} confirmed in TradingView Paper Trading",
+            nxt=SIMPLEX,
+        )
+        return order
+
+    def fail_ui(
+        self, order: PaperOrder, reason: str, *, submitted: bool = False
+    ) -> PaperOrder:
+        """Close a reserved order that never reached a confirmed UI state."""
+        with self._lock:
+            if order.order_id in self.orders:
+                order.status = "UNCONFIRMED" if submitted else "UI_FAILED"
+                order.ui_verified = False
+                order.ui_error = str(reason or "")[:300]
+                self._save_locked()
+        self._log(
+            f"{order.order_id} not confirmed in TradingView: {reason}",
+            level="WARN" if submitted else "ERROR",
+            nxt=TRADING,
+        )
+        return order
+
+    def expire_stale_reservations(self, max_age_s: float = 450.0) -> int:
+        """Fail reservations left behind by a stopped GUI executor.
+
+        A ``PENDING_UI`` row older than the GUI timeout cannot still have a
+        live loop behind it.  Without this, a killed/crashed run would block
+        every future entry on the same symbol/side as a phantom duplicate.
+        """
+        now = time.time()
+        expired = 0
+        with self._lock:
+            for order in self.orders.values():
+                if order.status != "PENDING_UI":
+                    continue
+                if now - order.opened_at <= max_age_s:
+                    continue
+                order.status = "UI_FAILED"
+                order.ui_verified = False
+                order.ui_error = "stale reservation: the GUI executor stopped before confirming"
+                expired += 1
+            if expired:
+                self._save_locked()
+        if expired:
+            self._log(
+                f"Expired {expired} stale PENDING_UI reservation(s)",
+                level="WARN",
+                nxt=TRADING,
+            )
+        return expired
 
     def find_open_order(
         self,
@@ -185,7 +339,7 @@ class PaperTradingEngine:
         *,
         max_age_s: float | None = None,
     ) -> PaperOrder | None:
-        """Return a recent OPEN order for the same canonical symbol/side."""
+        """Return a recent OPEN/PENDING order for the canonical symbol/side."""
         wanted_symbol = canonical_symbol(symbol)
         wanted_side = str(side or "").upper()
         now = time.time()
@@ -194,7 +348,7 @@ class PaperTradingEngine:
                 if max_age_s is not None and now - order.opened_at > max_age_s:
                     continue
                 if (
-                    order.status == "OPEN"
+                    order.status in {"OPEN", "PENDING_UI"}
                     and canonical_symbol(order.symbol) == wanted_symbol
                     and order.side.upper() == wanted_side
                 ):
@@ -292,6 +446,7 @@ class TradingTask:
     bus: Optional[EventBus] = None
     notifier: Any = None  # callable(str) -> bool, usually Simplex send_message
     tradingview: Any = None  # TradingViewBridge; chart context only, never a broker
+    gui_agent: Any = None  # TradingViewGuiAgent (or a fake in tests)
 
     def _log(self, stage: str, message: str, *, nxt: str = "", level: str = "INFO") -> None:
         if self.bus:
@@ -362,13 +517,138 @@ class TradingTask:
             elif not self.settings.tradingview_enabled:
                 evidence["error"] = "TradingView disabled"
             else:
-                from _orunex_libs import virtual_input as vin  # type: ignore
+                try:
+                    from _orunex_libs import virtual_input as vin  # type: ignore
+                except ImportError:
+                    # The delegated ``app.py --command`` process historically
+                    # did not put ``src`` on sys.path, so the cursor layer was
+                    # reported as unavailable even though TradingView opened.
+                    import sys
+
+                    src_dir = Path(__file__).resolve().parent.parent / "src"
+                    if str(src_dir) not in sys.path:
+                        sys.path.insert(0, str(src_dir))
+                    from _orunex_libs import virtual_input as vin  # type: ignore
 
                 agent = vin.get_input()
                 if not agent.available:
                     evidence["error"] = "virtual input unavailable"
                 else:
                     window = vin.find_tradingview_window()
+                    if window is None:
+                        # Launch TradingView Desktop automatically so the user
+                        # never has to open it manually before a trade.
+                        self._log(
+                            TRADINGVIEW,
+                            "TradingView not running; launching desktop app",
+                            nxt=TRADING,
+                        )
+                        # Ensure the bridge exists even in the delegated process
+                        # (app.py --command), where it may not have been set.
+                        if self.tradingview is None:
+                            try:
+                                from bridges.tradingview_bridge import (
+                                    TradingViewBridge,
+                                )
+
+                                self.tradingview = TradingViewBridge(
+                                    self.settings, self.bus
+                                )
+                            except Exception:
+                                self.tradingview = None
+                        launched = False
+                        if self.tradingview is not None:
+                            # Try the AppX package launcher (shell:AppsFolder),
+                            # the reliable way to start the MSIX package from
+                            # the Microsoft Store.
+                            try:
+                                app_id = self.tradingview.find_app_id()
+                                if app_id and os.name == "nt":
+                                    subprocess.Popen(
+                                        [
+                                            "explorer.exe",
+                                            f"shell:AppsFolder\\{app_id}",
+                                        ],
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
+                                    )
+                                    launched = True
+                                    self._log(
+                                        TRADINGVIEW,
+                                        f"Launched TradingView package {app_id}",
+                                        nxt=TRADING,
+                                    )
+                            except Exception:
+                                pass
+                            # Fall back to the direct exe path.
+                            if not launched:
+                                try:
+                                    ok = self.tradingview.launch(timeout=25.0)
+                                    if ok:
+                                        launched = True
+                                except Exception:
+                                    pass
+                        # If the bridge is None or both launch methods failed,
+                        # try launching the exe from common Windows locations.
+                        if not launched and vin.find_tradingview_window() is None:
+                            common_paths = [
+                                os.path.expandvars(
+                                    r"%LOCALAPPDATA%\Programs\TradingView\TradingView.exe"
+                                ),
+                                os.path.expandvars(
+                                    r"%PROGRAMFILES%\TradingView\TradingView.exe"
+                                ),
+                                os.path.expandvars(
+                                    r"%PROGRAMFILES(x86)%\TradingView\TradingView.exe"
+                                ),
+                            ]
+                            for exe_path in common_paths:
+                                if os.path.exists(exe_path):
+                                    try:
+                                        subprocess.Popen(
+                                            [exe_path],
+                                            stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL,
+                                        )
+                                        launched = True
+                                        self._log(
+                                            TRADINGVIEW,
+                                            f"Launched TradingView from {exe_path}",
+                                            nxt=TRADING,
+                                        )
+                                        break
+                                    except OSError:
+                                        continue
+                        # Wait for the window to appear (up to 180s total).
+                        # A cold MSIX start can spend 60-90s restoring the
+                        # workspace, and TradingView may start minimized.
+                        launched_ok = False
+                        for _launch_attempt in range(2):
+                            deadline = time.monotonic() + 90.0
+                            while time.monotonic() < deadline:
+                                window = vin.find_tradingview_window()
+                                if window is not None:
+                                    launched_ok = True
+                                    break
+                                time.sleep(0.7)
+                            if launched_ok:
+                                break
+                            # Second attempt: re-launch with the bridge.
+                            if self.tradingview is not None:
+                                self._log(
+                                    TRADINGVIEW,
+                                    "TradingView window still not visible; "
+                                    "re-launching desktop app",
+                                    nxt=TRADING,
+                                )
+                                try:
+                                    self.tradingview.launch(timeout=30.0)
+                                except Exception:
+                                    pass
+                        if not launched_ok:
+                            evidence["error"] = "TradingView window not found"
+                        else:
+                            window = vin.find_tradingview_window()
                     if window is None:
                         evidence["error"] = "TradingView window not found"
                     else:
@@ -413,6 +693,90 @@ class TradingTask:
         )
         return evidence
 
+    # ------------------------------------------------------- GUI execution
+    def _make_gui_agent(self) -> Any:
+        """Return the injected agent or build the real native executor."""
+        if self.gui_agent is not None:
+            return self.gui_agent
+        if not self.settings.tradingview_gui_enabled:
+            return None
+        try:
+            from tasks.tradingview_gui import TradingViewGuiAgent
+
+            self.gui_agent = TradingViewGuiAgent(
+                meta=self.meta,
+                settings=self.settings,
+                bus=self.bus,
+                screen_dir=self._screen_dir(),
+            )
+            return self.gui_agent
+        except Exception as exc:
+            self._log(
+                TRADINGVIEW,
+                f"GUI executor unavailable: {type(exc).__name__}: {exc}",
+                level="WARN",
+                nxt=TRADING,
+            )
+            return None
+
+    def _run_gui_order(
+        self,
+        decision: dict[str, Any],
+        *,
+        quantity: float,
+        live_chart: bool,
+    ) -> tuple[Any, dict[str, Any]]:
+        """Fill and submit the native TradingView paper ticket with Muse."""
+        # Without an injected agent, only drive the GUI when the native chart
+        # was actually opened.  Never construct a real executor just to fail
+        # in a headless/simulation context.
+        if self.gui_agent is None and not live_chart:
+            return None, {
+                "available": False,
+                "reason": "TradingView chart is not live in the native app",
+            }
+        agent = self._make_gui_agent()
+        if agent is None:
+            return None, {
+                "available": False,
+                "reason": "TradingView GUI executor is disabled or unavailable",
+            }
+        try:
+            result = agent.place_order(
+                symbol=str(decision.get("symbol") or ""),
+                side=str(decision.get("action") or ""),
+                quantity=float(quantity),
+                entry=float(decision["entry"]),
+                stop_loss=float(decision["stop_loss"]),
+                take_profit=float(decision["take_profit"]),
+                rationale=str(decision.get("rationale") or ""),
+            )
+        except Exception as exc:
+            self._log(
+                TRADINGVIEW,
+                f"GUI execution failed: {type(exc).__name__}: {exc}",
+                level="ERROR",
+                nxt=TRADING,
+            )
+            return None, {
+                "available": True,
+                "error": f"{type(exc).__name__}: {exc}",
+                "reason": "GUI executor raised an exception",
+            }
+        data = result.to_dict() if hasattr(result, "to_dict") else {"result": result}
+        self._log(
+            TRADINGVIEW,
+            "GUI paper ticket "
+            + (
+                "confirmed in Paper Trading"
+                if getattr(result, "ok", False)
+                else f"did not confirm ({getattr(result, 'status', 'unknown')})"
+            ),
+            level="INFO" if getattr(result, "ok", False) else "WARN",
+            nxt=TRADING,
+        )
+        return result, data
+
     def run(self, request: TradingRequest) -> TaskResult:
         result = TaskResult(kind="paper_trading")
         started = time.monotonic()
@@ -423,7 +787,36 @@ class TradingTask:
         tv_status: dict[str, Any] = {}
         try:
             alert = parse_tradingview_alert(request.raw)
-            symbol_hint = str(alert.get("symbol") or alert.get("ticker") or "BTCUSDT")
+            # The desktop delegation passes the user's language so every
+            # user-facing summary mirrors the instruction (English in, English
+            # out) instead of a canned Spanish reply.
+            self._language = (
+                "en"
+                if str(alert.get("language") or "").lower().startswith("en")
+                else "es"
+            )
+            symbol_value = str(
+                alert.get("symbol") or alert.get("ticker") or ""
+            ).strip()
+            # A delegated "haz una entrada" has no symbol of its own.  Prefer
+            # the chart already visible in TradingView instead of defaulting
+            # to BTCUSDT and then forcing Muse to reject a symbol mismatch.
+            symbol_explicit = bool(
+                alert.get("symbol_explicit", bool(symbol_value))
+            )
+            if (
+                not symbol_value
+                and self.tradingview is not None
+                and self.settings.tradingview_enabled
+            ):
+                try:
+                    symbol_value = symbol_from_title(
+                        self.tradingview.window_title()
+                    )
+                except Exception:
+                    symbol_value = ""
+            symbol_hint = symbol_value or "BTCUSDT"
+            alert["symbol"] = symbol_hint
             result.data["screen_start"] = self._capture_screen("paper_start")
             timeframe = str(
                 alert.get("timeframe") or alert.get("interval") or alert.get("tf") or "1h"
@@ -484,7 +877,11 @@ class TradingTask:
                     # capture is the primary evidence and gets a longer —
                     # still bounded — window to load.
                     has_price = bool(alert.get("price") or alert.get("entry"))
-                    tv_result = tv_future.result(timeout=6.0 if has_price else 30.0)
+                    # A cold TradingView start can spend ~30 s restoring the
+                    # workspace before the chart title appears.  Wait for the
+                    # bridge's bounded load instead of falling back to a
+                    # chartless decision and rejecting a valid explicit order.
+                    tv_result = tv_future.result(timeout=6.0 if has_price else 45.0)
                     if isinstance(tv_result, tuple):
                         tv_status, captured = tv_result
                         if chart_image is None:
@@ -504,6 +901,35 @@ class TradingTask:
                     result.data["tradingview"] = tv_status
                     self._log(TRADINGVIEW, f"Chart unavailable: {exc}", level="WARN", nxt=META)
 
+            # If the user did not name a symbol, use the chart that is already
+            # visible instead of forcing a default that Muse will reject as a
+            # mismatch.  An explicit symbol is never silently replaced.
+            chart_symbol = symbol_from_title(tv_status.get("window_title") or "")
+            if chart_symbol and not symbol_explicit:
+                if canonical_symbol(chart_symbol) != canonical_symbol(symbol_hint):
+                    self._log(
+                        TRADINGVIEW,
+                        f"No symbol requested; using visible chart {chart_symbol} "
+                        f"instead of default {symbol_hint}",
+                        level="WARN",
+                        nxt=META,
+                    )
+                symbol_hint = chart_symbol
+                alert["symbol"] = chart_symbol
+            symbol_mismatch = bool(
+                symbol_explicit
+                and chart_symbol
+                and canonical_symbol(chart_symbol) != canonical_symbol(symbol_hint)
+            )
+            if symbol_mismatch:
+                self._log(
+                    TRADINGVIEW,
+                    f"Requested {symbol_hint} but TradingView title shows "
+                    f"{chart_symbol}; refusing to trade a different symbol",
+                    level="WARN",
+                    nxt=META,
+                )
+
             # The agent always works through its own cursor.  This moves the
             # overlay over the chart, clicks with the ghost click (physical
             # mouse untouched) and stores a full-screen capture before Muse
@@ -521,47 +947,120 @@ class TradingTask:
             execute_requested = execute_flag is True or str(execute_flag).strip().lower() in {
                 "1", "true", "yes", "si", "sí",
             }
-            explicit_execution = (
-                execute_requested
-                or "execute the best paper entry" in str(alert.get("note") or "").lower()
-                or "ejecuta" in request.raw.lower()
+            explicit_execution = is_explicit_entry_request(
+                request.raw,
+                note=str(alert.get("note") or ""),
+                execute=execute_requested,
             )
-            execution_note = (
-                "\nEXPLICIT USER EXECUTION ORDER: the user asked for an entry "
-                "from this analysis. Choose BUY or SELL from the chart, use "
-                "the live chart price as entry and visible support/resistance "
-                "for stop_loss/take_profit. HOLD only if the chart symbol is "
-                "unreadable or no coherent stop exists.\n"
-                if explicit_execution
-                else ""
-            )
-            decision_started = time.monotonic()
-            decision = self._reason_json(
-                system=DECISION_SYSTEM,
-                user=(
-                    f"TradingView alert / order: {alert}\n\n"
-                    f"Recalled strategies from FAISS:\n{strategy_block}\n\n"
-                    f"Paper account: {self.engine.snapshot()}\n"
-                    f"Risk limits: max {self.settings.max_risk_per_trade_pct}% risk/trade, "
-                    f"max {self.settings.max_position_pct}% position. Decide now."
-                    f"{execution_note}"
-                ),
-                schema_hint=DECISION_SCHEMA,
-                images=images,
-                max_tokens=8192,
-                reasoning_effort="high",
-            )
-            timings["muse_decision"] = round(time.monotonic() - decision_started, 2)
-            result.data["decision"] = decision
-            action = str(decision.get("action") or "HOLD").upper()
-            confidence = float(decision.get("confidence") or 0)
+            force_entry = bool(explicit_execution and not symbol_mismatch)
             threshold = (
                 self.settings.explicit_trade_min_confidence
                 if explicit_execution
                 else self.settings.min_trade_confidence
             )
+
+            if symbol_mismatch and explicit_execution:
+                summary = self._t(
+                    (
+                        f"No se abrió orden paper: TradingView muestra "
+                        f"{chart_symbol}, no {symbol_hint}. No se opera un símbolo "
+                        "distinto al pedido."
+                    ),
+                    (
+                        f"No paper order was opened: TradingView shows "
+                        f"{chart_symbol}, not {symbol_hint}. The agent does not "
+                        "trade a different symbol."
+                    ),
+                )
+                result.data["symbol_mismatch"] = {
+                    "requested": symbol_hint,
+                    "chart": chart_symbol,
+                }
+                result.data["screen_decision"] = self._capture_screen(
+                    "paper_symbol_mismatch"
+                )
+                self._notify(summary)
+                return result.finish(TaskState.REJECTED, summary)
+
+            base_prompt = (
+                f"TradingView alert / order: {alert}\n\n"
+                f"Recalled strategies from FAISS:\n{strategy_block}\n\n"
+                f"Paper account: {self.engine.snapshot()}\n"
+                f"Risk limits: max {self.settings.max_risk_per_trade_pct}% risk/trade, "
+                f"max {self.settings.max_position_pct}% position. Decide now."
+            )
+            # Explicit orders may not end in HOLD/REJECT.  Muse is asked to
+            # choose BUY or SELL, and if it still hesitates (or returns a
+            # below-floor confidence) the same chart evidence is sent back
+            # with a stricter correction prompt.  The deterministic risk gate
+            # below still validates every returned order.
+            attempts = (
+                max(1, int(self.settings.explicit_trade_decision_attempts))
+                if force_entry
+                else 1
+            )
+            decision_started = time.monotonic()
+            decision: dict[str, Any] = {}
+            decision_attempts: list[dict[str, Any]] = []
+            for attempt in range(1, attempts + 1):
+                prompt = base_prompt
+                if force_entry:
+                    prompt += EXPLICIT_EXECUTION_NOTE
+                    if attempt > 1:
+                        prompt += (
+                            "\nPrevious invalid answer: "
+                            f"{json.dumps(decision, ensure_ascii=False)[:900]}\n"
+                            f"{EXPLICIT_RETRY_NOTE}"
+                        )
+                decision = self._reason_json(
+                    system=(
+                        EXPLICIT_DECISION_SYSTEM
+                        if force_entry
+                        else DECISION_SYSTEM
+                    ),
+                    user=prompt,
+                    schema_hint=(
+                        EXPLICIT_DECISION_SCHEMA
+                        if force_entry
+                        else DECISION_SCHEMA
+                    ),
+                    images=images,
+                    max_tokens=8192,
+                    reasoning_effort="high",
+                )
+                action = str(decision.get("action") or "HOLD").upper()
+                confidence = float(decision.get("confidence") or 0)
+                decision_attempts.append(
+                    {
+                        "attempt": attempt,
+                        "action": action,
+                        "confidence": confidence,
+                    }
+                )
+                result.data["decision"] = decision
+                if not force_entry:
+                    break
+                if action in {"BUY", "SELL"} and confidence >= threshold:
+                    break
+                if attempt < attempts:
+                    reason = (
+                        "HOLD/REJECT"
+                        if action in {"HOLD", "REJECT"}
+                        else f"confidence {confidence:.2f} below {threshold:.2f}"
+                    )
+                    self._log(
+                        META,
+                        f"Explicit order attempt {attempt}/{attempts} returned "
+                        f"{action} ({reason}); retrying with a stricter prompt",
+                        level="WARN",
+                        nxt=TRADING,
+                    )
+                    time.sleep(0.4)
+            timings["muse_decision"] = round(time.monotonic() - decision_started, 2)
             result.data["explicit_execution"] = explicit_execution
+            result.data["force_entry"] = force_entry
             result.data["confidence_threshold"] = threshold
+            result.data["decision_attempts"] = decision_attempts
             self._log(
                 META,
                 f"Decision {action} confidence={confidence:.2f} "
@@ -571,6 +1070,24 @@ class TradingTask:
             )
 
             if action in {"HOLD", "REJECT"}:
+                if force_entry:
+                    summary = self._t(
+                        (
+                            "No se abrió orden paper: Muse no pudo validar una "
+                            f"entrada tras {attempts} intentos. "
+                            f"{decision.get('rationale', '')}"
+                        ),
+                        (
+                            "No paper order was opened: Muse could not validate "
+                            f"an entry after {attempts} attempts. "
+                            f"{decision.get('rationale', '')}"
+                        ),
+                    )
+                    result.data["screen_decision"] = self._capture_screen(
+                        "paper_no_entry"
+                    )
+                    self._notify(summary)
+                    return result.finish(TaskState.REJECTED, summary)
                 summary = f"No paper order: Muse decided {action}. {decision.get('rationale', '')}"
                 result.data["screen_decision"] = self._capture_screen(
                     f"paper_{action.lower()}"
@@ -599,6 +1116,9 @@ class TradingTask:
                 except Exception as exc:
                     tv_status = {"opened": False, "error": f"{type(exc).__name__}: {exc}"}
                     result.data["tradingview"] = tv_status
+            self.engine.expire_stale_reservations(
+                max_age_s=float(self.settings.tradingview_gui_timeout_s) + 30.0
+            )
             existing = self.engine.find_open_order(
                 str(decision.get("symbol") or symbol_hint),
                 action,
@@ -618,7 +1138,7 @@ class TradingTask:
                 return result.finish(TaskState.COMPLETED, summary)
 
             try:
-                order = self.engine.execute(decision)
+                order = self.engine.reserve(decision)
             except DuplicatePaperOrderError as exc:
                 existing = exc.order
                 summary = (
@@ -632,7 +1152,96 @@ class TradingTask:
                 )
                 self._notify(summary)
                 return result.finish(TaskState.COMPLETED, summary)
+            except ValueError as exc:
+                summary = f"No paper order: {exc}"
+                result.data["screen_decision"] = self._capture_screen(
+                    "paper_invalid"
+                )
+                self._notify(summary)
+                return result.finish(TaskState.REJECTED, summary)
             result.data["order"] = order.to_dict()
+            result.data["order_reserved"] = True
+
+            # The GUI executor is the execution path: Muse sees the native
+            # TradingView window, fills the ticket with the agent cursor and
+            # keyboard, and only then is the reserved paper order promoted to
+            # OPEN.  Explicit orders may not silently fall back to a ledger.
+            gui_required = bool(explicit_execution or live_chart)
+            gui_result = None
+            gui_data: dict[str, Any] = {"available": False, "reason": "not requested"}
+            if gui_required:
+                gui_result, gui_data = self._run_gui_order(
+                    decision, quantity=order.quantity, live_chart=live_chart
+                )
+                result.data["gui_execution"] = gui_data
+            if gui_result is not None and getattr(gui_result, "ok", False):
+                self.engine.confirm_ui(
+                    order,
+                    reference=getattr(gui_result, "reference", ""),
+                    price=getattr(gui_result, "fill_price", 0.0) or order.entry,
+                    verified=True,
+                )
+                result.data["order"] = order.to_dict()
+                result.data["gui_verified"] = True
+            elif gui_required:
+                reason = (
+                    getattr(gui_result, "reason", "")
+                    if gui_result is not None
+                    else str(
+                        gui_data.get("reason")
+                        or gui_data.get("error")
+                        or "TradingView GUI unavailable"
+                    )
+                )
+                submitted = bool(getattr(gui_result, "submitted", False))
+                self.engine.fail_ui(order, reason, submitted=submitted)
+                result.data["order"] = order.to_dict()
+                if submitted:
+                    summary = self._t(
+                        (
+                            "La orden paper pudo enviarse en TradingView, pero no se "
+                            f"pudo confirmar visualmente: {reason}. Revisa la pestaña "
+                            "Positions/Orders. No se marcó como abierta en el registro."
+                        ),
+                        (
+                            "The paper order may have been sent in TradingView, but "
+                            f"it could not be visually confirmed: {reason}. Check "
+                            "the Positions/Orders tab. It was not marked as open in "
+                            "the ledger."
+                        ),
+                    )
+                    result.data["screen_decision"] = self._capture_screen(
+                        "paper_ui_unconfirmed"
+                    )
+                    self._notify(summary)
+                    return result.finish(TaskState.FAILED, summary)
+                summary = self._t(
+                    (
+                        "No se abrió orden paper en TradingView: "
+                        f"{reason}. No se registró ninguna orden abierta."
+                    ),
+                    (
+                        "No paper order was opened in TradingView: "
+                        f"{reason}. No open order was recorded."
+                    ),
+                )
+                result.data["screen_decision"] = self._capture_screen(
+                    "paper_ui_failed"
+                )
+                self._notify(summary)
+                return result.finish(TaskState.REJECTED, summary)
+            else:
+                # Headless/simulation context (no native chart): keep the
+                # ledger honest and mark it as not UI-verified.
+                self.engine.confirm_ui(
+                    order,
+                    reference="LEDGER-ONLY",
+                    price=order.entry,
+                    verified=False,
+                )
+                result.data["order"] = order.to_dict()
+                result.data["gui_verified"] = False
+
             # Leave the agent pointer parked over the confirmed chart and
             # store the final full-screen evidence of the paper entry.
             result.data["cursor_confirmed"] = self._agent_cursor_chart(
@@ -651,6 +1260,15 @@ class TradingTask:
                 tv_line = "Chart: captured chart image analyzed by Muse"
             else:
                 tv_line = "TradingView: chart not confirmed; order decided from alert/FAISS data"
+            if result.data.get("gui_verified"):
+                ui_line = (
+                    "TradingView UI: Paper Trading verified; ticket submitted "
+                    "and position confirmed"
+                )
+            elif explicit_execution:
+                ui_line = "TradingView UI: not verified"
+            else:
+                ui_line = "TradingView UI: ledger-only simulation (no native ticket)"
             threshold_label = "explicit-order" if explicit_execution else "autonomous"
             confirmation = (
                 f"PAPER ORDER CONFIRMED {order.order_id}\n"
@@ -658,6 +1276,7 @@ class TradingTask:
                 f"Stop Loss: {order.stop_loss} | Take Profit: {order.take_profit}\n"
                 f"Muse confidence: {confidence:.2f} ({threshold_label} threshold {threshold:.2f})\n"
                 f"{tv_line}\n"
+                f"{ui_line}\n"
                 f"Mode: PAPER ONLY (no real funds)\n"
                 f"Rationale: {order.rationale}"
             )
@@ -681,6 +1300,10 @@ class TradingTask:
             timings["total_before_finish"] = round(time.monotonic() - started, 2)
             if tv_pool is not None:
                 tv_pool.shutdown(wait=False, cancel_futures=True)
+
+    def _t(self, es: str, en: str) -> str:
+        """Return the summary in the user's instruction language."""
+        return en if getattr(self, "_language", "es") == "en" else es
 
     def _notify(self, text: str) -> None:
         if self.notifier:

@@ -363,12 +363,17 @@ class MetaFAISSMemory:
         top_k: int = 3,
         *,
         min_score: float = 0.0,
+        kind: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return the most similar memories for a query vector.
 
         The result is a list of dictionaries with ``id``, ``score``, ``text``
         and the complete ``metadata`` mapping.  Similarity is cosine
         similarity, because all vectors are L2-normalised.
+
+        When ``kind`` is given, only entries whose ``metadata["kind"]``
+        matches are returned.  The search over-fetches candidates so a
+        namespace filter does not silently shrink the result set.
         """
         prepared = _as_normalised_vector(query_vector)
         try:
@@ -376,6 +381,7 @@ class MetaFAISSMemory:
         except (TypeError, ValueError):
             k = 3
         threshold = float(min_score)
+        wanted_kind = str(kind) if kind is not None else None
 
         with self._lock:
             if self._index is None or self._index.ntotal <= 0:
@@ -386,8 +392,14 @@ class MetaFAISSMemory:
                     f"the memory dimension {self._dimension}."
                 )
 
-            k = min(k, int(self._index.ntotal))
-            scores, ids = self._index.search(prepared, k)
+            total = int(self._index.ntotal)
+            if wanted_kind is None:
+                fetch_k = min(k, total)
+            else:
+                # Namespace filtering happens after the vector search, so ask
+                # for a wider candidate window.  Capped at the index size.
+                fetch_k = min(total, max(k * 6, k + 24))
+            scores, ids = self._index.search(prepared, fetch_k)
 
             results: List[Dict[str, Any]] = []
             for score, memory_id in zip(scores[0], ids[0]):
@@ -398,6 +410,11 @@ class MetaFAISSMemory:
                 if similarity < threshold:
                     continue
                 metadata = copy.deepcopy(self._metadata.get(memory_id, {}))
+                if (
+                    wanted_kind is not None
+                    and str(metadata.get("kind", "")) != wanted_kind
+                ):
+                    continue
                 text = (
                     metadata.get("text")
                     or metadata.get("content")
@@ -413,7 +430,54 @@ class MetaFAISSMemory:
                         "metadata": metadata,
                     }
                 )
+                if len(results) >= k:
+                    break
             return results
+
+    def entries(self, kind: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List stored metadata, optionally restricted to one ``kind``.
+
+        The returned dictionaries include the stable FAISS ``id``.  They are
+        deep copies: mutating them never changes the live memory.
+        """
+        wanted_kind = str(kind) if kind is not None else None
+        with self._lock:
+            items: List[Dict[str, Any]] = []
+            for memory_id, metadata in self._metadata.items():
+                if (
+                    wanted_kind is not None
+                    and str(metadata.get("kind", "")) != wanted_kind
+                ):
+                    continue
+                item = copy.deepcopy(metadata)
+                item.setdefault("id", memory_id)
+                items.append(item)
+            items.sort(key=lambda item: int(item.get("id", 0)))
+            return items
+
+    def remove_ids(self, ids: Any, *, persist: bool = True) -> int:
+        """Delete memories by FAISS ID and return how many were removed."""
+        try:
+            id_list = [int(value) for value in ids]
+        except TypeError:
+            id_list = [int(ids)]
+        with self._lock:
+            if self._index is None or not id_list:
+                return 0
+            existing = [memory_id for memory_id in id_list if memory_id in self._metadata]
+            if not existing:
+                return 0
+            selector = np.asarray(existing, dtype=np.int64)
+            try:
+                self._index.remove_ids(selector)
+            except Exception as exc:
+                self._last_error = f"{type(exc).__name__}: {exc}"
+                return 0
+            for memory_id in existing:
+                self._metadata.pop(memory_id, None)
+            if persist:
+                self._save_locked()
+            return len(existing)
 
     # ------------------------------------------------------------------
     # Text convenience API used by Orunex
@@ -446,13 +510,17 @@ class MetaFAISSMemory:
         top_k: int = 3,
         *,
         min_score: float = 0.0,
+        kind: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Embed a text query and return matching memories."""
         clean_query = str(query or "").strip()
         if not clean_query:
             return []
         return self.search_context(
-            self._embed_text(clean_query), top_k=top_k, min_score=min_score
+            self._embed_text(clean_query),
+            top_k=top_k,
+            min_score=min_score,
+            kind=kind,
         )
 
     def remember(

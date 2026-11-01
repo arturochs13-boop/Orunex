@@ -18,6 +18,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
+
+# The delegated agent runs from the repository root (``app.py --command``).
+# ``src`` must be importable there too: the trading task drives TradingView
+# through ``_orunex_libs.virtual_input`` (the agent-owned cursor).  Without
+# this, the delegated process silently fell back to "cursor unavailable".
+_SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 
 def main() -> int:

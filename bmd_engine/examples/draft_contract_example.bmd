@@ -1,0 +1,39 @@
+---
+block_id: "0xDRAFT_AGREEMENT_2026_001"
+document_type: "contract"
+previous_hash: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+current_hash: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+mode: "draft"
+signer_role: "emitter"
+timestamp: 1772600000
+jurisdiction: "Delaware, USA"
+require_cosigner: true
+co_sign_label: "Accept and Co-Sign as Client"
+public_key: ""
+signature_layer_2: ""
+payload_encrypted: false
+---
+
+# Autonomous Software Development Agreement
+
+This draft agreement governs the development and delivery of a decentralized computing engine under the **Blockchain Markdown (.bmd)** protocol.
+
+<!-- bmd:insert_co_sign_button label="Accept and Co-Sign as Client" -->
+
+---
+
+## 1. Scope of Work
+
+The Emitter shall engineer, test, and package the core modules according to deterministic cryptographic standards. The recipient shall review the code upon delivery.
+
+## 2. Milestone Deliverables and Compensation
+
+| Milestone | Deliverable Description | Allocation |
+| :--- | :--- | :--- |
+| **Phase 1: Architecture** | Cryptographic engine specification and memory model | 25% |
+| **Phase 2: Core Engine** | C11 high-assurance implementation with Ed25519 signatures | 45% |
+| **Phase 3: Studio & Agent** | Desktop Mini-IDE interface and autonomous document generator | 30% |
+
+## 3. Intellectual Property and Final Sealing
+
+Upon final co-signature, editing privileges are permanently frozen. The emitter's private key seals the block into the SHA-512 custody ledger.

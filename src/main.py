@@ -91,6 +91,16 @@ else:
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+# The desktop entry point runs as ``pythonw src\main.py``: Python puts only
+# ``src`` on sys.path.  Shared backend modules (``core``, ``bridges``,
+# ``tasks``) live in the repository root, so delegation imports such as
+# ``core.trade_intent`` must be able to resolve them here too.  Append (not
+# insert) so the UI's own modules keep priority.
+if not getattr(sys, "frozen", False):
+    _PROJECT_ROOT = os.path.dirname(BASE_DIR)
+    if _PROJECT_ROOT not in sys.path:
+        sys.path.append(_PROJECT_ROOT)
+
 # --- UTILS (inline para evitar dependencias rotas) ---
 from _orunex_libs.languages import LANGUAGES # type: ignore
 from _orunex_libs import database, project_manager, chat_store # type: ignore
@@ -294,8 +304,8 @@ class OrunexApp(ctk.CTk):
         self.fullscreen_state = False
         self.current_language = "English"
         self.lang_dict = LANGUAGES["English"]
-        self.is_processing = False
         self._glow_active = False
+        self._is_processing = False
         self._screen_glow = None
         self._live_vision_active = False
         self._live_vision_session = None
@@ -320,6 +330,13 @@ class OrunexApp(ctk.CTk):
         self._vscode_phase = 0.0
         self._vscode_min_visible_until = 0.0
         self._vscode_last_status = ""
+        # Transparent desktop "Executing..." overlay shown while a task runs.
+        self._executing_visible = False
+        self._executing_after_id = None
+        self._executing_phase = 0.0
+        self._executing_holds = 0
+        self.executing_window = None
+        self.executing_canvas = None
         self.current_mode = mode_router.MODE_DEFAULT
         self._resolved_mode = mode_router.MODE_DEFAULT
         self._logo_image = None
@@ -632,6 +649,7 @@ class OrunexApp(ctk.CTk):
             "_composer_glow_job",
             "_vscode_after_id",
             "_thinking_after_id",
+            "_executing_after_id",
             "_glow_timer_id",
         ):
             job = getattr(self, attr, None)
@@ -1444,6 +1462,909 @@ class OrunexApp(ctk.CTk):
                     "Abriendo Chrome.",
                     "Opening YouTube in Chrome.",
                     "¿Qué quieres que abra? Dime el sitio o la aplicación.",
+                    "I don't understand. Please repeat.",
+                    "Say that again, please.",
+                    "I didn't catch that.",
+                    "Command executed.",
+                    "Task completed successfully.",
+                    "Order placed.",
+                    "Position opened.",
+                    "Position closed.",
+                    "No position found.",
+                    "Duplicate position blocked.",
+                    "Insufficient margin.",
+                    "Market is closed.",
+                    "Symbol not found.",
+                    "Invalid symbol.",
+                    "Buy order sent.",
+                    "Sell order sent.",
+                    "Stop loss set.",
+                    "Take profit set.",
+                    "Order cancelled.",
+                    "All positions closed.",
+                    "Live mode enabled.",
+                    "Live mode disabled.",
+                    "Voice enabled.",
+                    "Voice disabled.",
+                    "Listening.",
+                    "Not listening.",
+                    "Microphone ready.",
+                    "Microphone unavailable.",
+                    "Camera ready.",
+                    "Camera unavailable.",
+                    "Screen capture ready.",
+                    "Analyzing screen.",
+                    "Screen analysis complete.",
+                    "No text found on screen.",
+                    "Opening TradingView.",
+                    "Opening chart.",
+                    "Chart opened.",
+                    "Placing order.",
+                    "Order submitted.",
+                    "Order confirmed.",
+                    "Order rejected.",
+                    "Execution failed.",
+                    "Execution successful.",
+                    "Stop loss triggered.",
+                    "Take profit triggered.",
+                    "Position in profit.",
+                    "Position in loss.",
+                    "Balance updated.",
+                    "Equity updated.",
+                    "Margin available.",
+                    "Margin used.",
+                    "Free margin.",
+                    "No free margin.",
+                    "Risk too high.",
+                    "Risk acceptable.",
+                    "Position size calculated.",
+                    "Lot size set.",
+                    "Volume set.",
+                    "Slippage set.",
+                    "Deviation set.",
+                    "Magic number set.",
+                    "Comment added.",
+                    "Comment removed.",
+                    "Order modified.",
+                    "Order deleted.",
+                    "Position modified.",
+                    "Position deleted.",
+                    "History loaded.",
+                    "History cleared.",
+                    "Report generated.",
+                    "Report saved.",
+                    "Report exported.",
+                    "Settings saved.",
+                    "Settings loaded.",
+                    "Settings reset.",
+                    "Configuration updated.",
+                    "Configuration saved.",
+                    "Configuration loaded.",
+                    "Update available.",
+                    "No update available.",
+                    "Downloading update.",
+                    "Update installed.",
+                    "Update failed.",
+                    "Restart required.",
+                    "Restarting now.",
+                    "Shutting down.",
+                    "Goodbye.",
+                    "See you later.",
+                    "Have a good day.",
+                    "Thank you.",
+                    "You're welcome.",
+                    "Please wait.",
+                    "Please hold.",
+                    "One moment.",
+                    "Just a second.",
+                    "Give me a moment.",
+                    "Processing.",
+                    "Working on it.",
+                    "Almost done.",
+                    "Nearly there.",
+                    "Finishing up.",
+                    "Finalizing.",
+                    "Complete.",
+                    "Finished.",
+                    "All done.",
+                    "Everything is ready.",
+                    "All systems go.",
+                    "Nominal.",
+                    "Standing by.",
+                    "Standing by for your command.",
+                    "Awaiting your instruction.",
+                    "Ready for your command.",
+                    "I'm ready.",
+                    "I am ready.",
+                    "At your service.",
+                    "How can I help you today?",
+                    "What can I do for you?",
+                    "What do you need?",
+                    "Tell me what to do.",
+                    "Give me a command.",
+                    "I'm listening.",
+                    "I am listening.",
+                    "Go ahead.",
+                    "Speak.",
+                    "Say it.",
+                    "Tell me.",
+                    "Show me.",
+                    "Display it.",
+                    "Open it.",
+                    "Close it.",
+                    "Start it.",
+                    "Stop it.",
+                    "Pause it.",
+                    "Resume it.",
+                    "Cancel it.",
+                    "Delete it.",
+                    "Remove it.",
+                    "Add it.",
+                    "Create it.",
+                    "Make it.",
+                    "Build it.",
+                    "Run it.",
+                    "Execute it.",
+                    "Launch it.",
+                    "Begin it.",
+                    "Initiate it.",
+                    "Terminate it.",
+                    "End it.",
+                    "Finish it.",
+                    "Complete it.",
+                    "Accomplish it.",
+                    "Achieve it.",
+                    "Reach it.",
+                    "Obtain it.",
+                    "Get it.",
+                    "Fetch it.",
+                    "Retrieve it.",
+                    "Pull it.",
+                    "Push it.",
+                    "Send it.",
+                    "Receive it.",
+                    "Upload it.",
+                    "Download it.",
+                    "Save it.",
+                    "Load it.",
+                    "Import it.",
+                    "Export it.",
+                    "Copy it.",
+                    "Paste it.",
+                    "Cut it.",
+                    "Undo it.",
+                    "Redo it.",
+                    "Repeat it.",
+                    "Replay it.",
+                    "Refresh it.",
+                    "Reload it.",
+                    "Restart it.",
+                    "Reboot it.",
+                    "Reset it.",
+                    "Clear it.",
+                    "Clean it.",
+                    "Fix it.",
+                    "Repair it.",
+                    "Mend it.",
+                    "Heal it.",
+                    "Cure it.",
+                    "Solve it.",
+                    "Resolve it.",
+                    "Answer it.",
+                    "Reply to it.",
+                    "Respond to it.",
+                    "React to it.",
+                    "Act on it.",
+                    "Do it.",
+                    "Perform it.",
+                    "Carry it out.",
+                    "Follow through.",
+                    "See it through.",
+                    "Bring it about.",
+                    "Make it happen.",
+                    "Get it done.",
+                    "Get it over with.",
+                    "Wrap it up.",
+                    "Tie it up.",
+                    "Seal it.",
+                    "Close it out.",
+                    "Shut it down.",
+                    "Power it off.",
+                    "Turn it off.",
+                    "Switch it off.",
+                    "Turn it on.",
+                    "Switch it on.",
+                    "Power it on.",
+                    "Enable it.",
+                    "Disable it.",
+                    "Activate it.",
+                    "Deactivate it.",
+                    "Engage it.",
+                    "Disengage it.",
+                    "Connect it.",
+                    "Disconnect it.",
+                    "Link it.",
+                    "Unlink it.",
+                    "Join it.",
+                    "Separate it.",
+                    "Split it.",
+                    "Merge it.",
+                    "Combine it.",
+                    "Unite it.",
+                    "Divide it.",
+                    "Multiply it.",
+                    "Add it.",
+                    "Subtract it.",
+                    "Increase it.",
+                    "Decrease it.",
+                    "Raise it.",
+                    "Lower it.",
+                    "Lift it.",
+                    "Drop it.",
+                    "Throw it.",
+                    "Catch it.",
+                    "Hold it.",
+                    "Release it.",
+                    "Grab it.",
+                    "Let go.",
+                    "Take it.",
+                    "Give it.",
+                    "Offer it.",
+                    "Accept it.",
+                    "Reject it.",
+                    "Refuse it.",
+                    "Deny it.",
+                    "Allow it.",
+                    "Permit it.",
+                    "Forbid it.",
+                    "Ban it.",
+                    "Prohibit it.",
+                    "Restrict it.",
+                    "Limit it.",
+                    "Cap it.",
+                    "Bound it.",
+                    "Constrain it.",
+                    "Free it.",
+                    "Liberate it.",
+                    "Release it.",
+                    "Set it.",
+                    "Put it.",
+                    "Place it.",
+                    "Position it.",
+                    "Locate it.",
+                    "Find it.",
+                    "Discover it.",
+                    "Detect it.",
+                    "Identify it.",
+                    "Recognize it.",
+                    "Distinguish it.",
+                    "Differentiate it.",
+                    "Compare it.",
+                    "Contrast it.",
+                    "Match it.",
+                    "Pair it.",
+                    "Group it.",
+                    "Sort it.",
+                    "Order it.",
+                    "Arrange it.",
+                    "Organize it.",
+                    "Classify it.",
+                    "Categorize it.",
+                    "Label it.",
+                    "Tag it.",
+                    "Mark it.",
+                    "Flag it.",
+                    "Highlight it.",
+                    "Emphasize it.",
+                    "Focus on it.",
+                    "Center it.",
+                    "Align it.",
+                    "Balance it.",
+                    "Stabilize it.",
+                    "Steady it.",
+                    "Calm it.",
+                    "Settle it.",
+                    "Soothe it.",
+                    "Relax it.",
+                    "Relieve it.",
+                    "Ease it.",
+                    "Smooth it.",
+                    "Polish it.",
+                    "Refine it.",
+                    "Perfect it.",
+                    "Complete it.",
+                    "Finalize it.",
+                    "Conclude it.",
+                    "End it.",
+                    "Stop it.",
+                    "Halt it.",
+                    "Pause it.",
+                    "Suspend it.",
+                    "Delay it.",
+                    "Postpone it.",
+                    "Defer it.",
+                    "Reschedule it.",
+                    "Move it.",
+                    "Shift it.",
+                    "Transfer it.",
+                    "Transport it.",
+                    "Carry it.",
+                    "Bear it.",
+                    "Hold it.",
+                    "Keep it.",
+                    "Retain it.",
+                    "Preserve it.",
+                    "Maintain it.",
+                    "Sustain it.",
+                    "Support it.",
+                    "Back it.",
+                    "Endorse it.",
+                    "Approve it.",
+                    "Authorize it.",
+                    "Sanction it.",
+                    "Validate it.",
+                    "Verify it.",
+                    "Confirm it.",
+                    "Certify it.",
+                    "Authenticate it.",
+                    "Validate it.",
+                    "Ratify it.",
+                    "Accept it.",
+                    "Adopt it.",
+                    "Embrace it.",
+                    "Welcome it.",
+                    "Greet it.",
+                    "Salute it.",
+                    "Acknowledge it.",
+                    "Recognize it.",
+                    "Notice it.",
+                    "Observe it.",
+                    "Watch it.",
+                    "Monitor it.",
+                    "Track it.",
+                    "Trace it.",
+                    "Follow it.",
+                    "Chase it.",
+                    "Pursue it.",
+                    "Seek it.",
+                    "Look for it.",
+                    "Search for it.",
+                    "Hunt for it.",
+                    "Scout for it.",
+                    "Prospect for it.",
+                    "Mine it.",
+                    "Dig it.",
+                    "Excavate it.",
+                    "Uncover it.",
+                    "Reveal it.",
+                    "Expose it.",
+                    "Show it.",
+                    "Display it.",
+                    "Present it.",
+                    "Exhibit it.",
+                    "Demonstrate it.",
+                    "Illustrate it.",
+                    "Depict it.",
+                    "Portray it.",
+                    "Describe it.",
+                    "Explain it.",
+                    "Clarify it.",
+                    "Define it.",
+                    "Specify it.",
+                    "Detail it.",
+                    "Elaborate on it.",
+                    "Expand on it.",
+                    "Develop it.",
+                    "Grow it.",
+                    "Build it.",
+                    "Construct it.",
+                    "Assemble it.",
+                    "Fabricate it.",
+                    "Manufacture it.",
+                    "Produce it.",
+                    "Create it.",
+                    "Make it.",
+                    "Form it.",
+                    "Shape it.",
+                    "Mold it.",
+                    "Cast it.",
+                    "Forge it.",
+                    "Craft it.",
+                    "Design it.",
+                    "Plan it.",
+                    "Plot it.",
+                    "Map it.",
+                    "Chart it.",
+                    "Graph it.",
+                    "Plot it.",
+                    "Draw it.",
+                    "Sketch it.",
+                    "Paint it.",
+                    "Color it.",
+                    "Shade it.",
+                    "Tone it.",
+                    "Hue it.",
+                    "Tint it.",
+                    "Dye it.",
+                    "Stain it.",
+                    "Mark it.",
+                    "Sign it.",
+                    "Label it.",
+                    "Title it.",
+                    "Name it.",
+                    "Call it.",
+                    "Dub it.",
+                    "Term it.",
+                    "Style it.",
+                    "Fashion it.",
+                    "Trend it.",
+                    "Mode it.",
+                    "Trend it.",
+                    "Vogue it.",
+                    "Fad it.",
+                    "Craze it.",
+                    "Rage it.",
+                    "Hit it.",
+                    "Smash it.",
+                    "Crush it.",
+                    "Destroy it.",
+                    "Ruins it.",
+                    "Demolish it.",
+                    "Level it.",
+                    "Flatten it.",
+                    "Raze it.",
+                    "Wreck it.",
+                    "Damage it.",
+                    "Harm it.",
+                    "Hurt it.",
+                    "Injure it.",
+                    "Wound it.",
+                    "Bruise it.",
+                    "Cut it.",
+                    "Slice it.",
+                    "Dice it.",
+                    "Chop it.",
+                    "Hack it.",
+                    "Slash it.",
+                    "Stab it.",
+                    "Pierce it.",
+                    "Puncture it.",
+                    "Prick it.",
+                    "Scratch it.",
+                    "Scrape it.",
+                    "Rub it.",
+                    "Scrub it.",
+                    "Wipe it.",
+                    "Clean it.",
+                    "Wash it.",
+                    "Rinse it.",
+                    "Soak it.",
+                    "Drench it.",
+                    "Saturate it.",
+                    "Immerse it.",
+                    "Submerge it.",
+                    "Drown it.",
+                    "Sink it.",
+                    "Float it.",
+                    "Swim it.",
+                    "Dive it.",
+                    "Plunge it.",
+                    "Dip it.",
+                    "Dunk it.",
+                    "Soak it.",
+                    "Steep it.",
+                    "Brew it.",
+                    "Cook it.",
+                    "Bake it.",
+                    "Fry it.",
+                    "Grill it.",
+                    "Roast it.",
+                    "Broil it.",
+                    "Toast it.",
+                    "Warm it.",
+                    "Heat it.",
+                    "Cool it.",
+                    "Chill it.",
+                    "Freeze it.",
+                    "Thaw it.",
+                    "Melt it.",
+                    "Boil it.",
+                    "Steam it.",
+                    "Evaporate it.",
+                    "Condense it.",
+                    "Distill it.",
+                    "Filter it.",
+                    "Strain it.",
+                    "Sieve it.",
+                    "Sort it.",
+                    "Sift it.",
+                    "Separate it.",
+                    "Divide it.",
+                    "Split it.",
+                    "Break it.",
+                    "Crack it.",
+                    "Smash it.",
+                    "Shatter it.",
+                    "Fragment it.",
+                    "Splinter it.",
+                    "Shatter it.",
+                    "Pulverize it.",
+                    "Crush it.",
+                    "Grind it.",
+                    "Mill it.",
+                    "Crush it.",
+                    "Mash it.",
+                    "Puree it.",
+                    "Blend it.",
+                    "Mix it.",
+                    "Stir it.",
+                    "Whisk it.",
+                    "Beat it.",
+                    "Whip it.",
+                    "Knead it.",
+                    "Fold it.",
+                    "Toss it.",
+                    "Tumble it.",
+                    "Shake it.",
+                    "Jolt it.",
+                    "Jerk it.",
+                    "Twitch it.",
+                    "Spasm it.",
+                    "Convulse it.",
+                    "Quiver it.",
+                    "Tremble it.",
+                    "Shiver it.",
+                    "Shudder it.",
+                    "Shake it.",
+                    "Vibrate it.",
+                    "Oscillate it.",
+                    "Swing it.",
+                    "Sway it.",
+                    "Rock it.",
+                    "Roll it.",
+                    "Spin it.",
+                    "Rotate it.",
+                    "Revolve it.",
+                    "Turn it.",
+                    "Twist it.",
+                    "Wind it.",
+                    "Coil it.",
+                    "Loop it.",
+                    "Circle it.",
+                    "Curve it.",
+                    "Bend it.",
+                    "Flex it.",
+                    "Stretch it.",
+                    "Extend it.",
+                    "Expand it.",
+                    "Enlarge it.",
+                    "Magnify it.",
+                    "Amplify it.",
+                    "Increase it.",
+                    "Boost it.",
+                    "Enhance it.",
+                    "Improve it.",
+                    "Better it.",
+                    "Upgrade it.",
+                    "Update it.",
+                    "Modernize it.",
+                    "Renew it.",
+                    "Refresh it.",
+                    "Revise it.",
+                    "Alter it.",
+                    "Change it.",
+                    "Modify it.",
+                    "Adjust it.",
+                    "Adapt it.",
+                    "Accommodate it.",
+                    "Suit it.",
+                    "Fit it.",
+                    "Match it.",
+                    "Match it.",
+                    "Coordinate it.",
+                    "Harmonize it.",
+                    "Blend it.",
+                    "Fuse it.",
+                    "Unite it.",
+                    "Join it.",
+                    "Connect it.",
+                    "Link it.",
+                    "Attach it.",
+                    "Fasten it.",
+                    "Secure it.",
+                    "Fix it.",
+                    "Anchor it.",
+                    "Mooring it.",
+                    "Dock it.",
+                    "Park it.",
+                    "Station it.",
+                    "Post it.",
+                    "Position it.",
+                    "Place it.",
+                    "Put it.",
+                    "Set it.",
+                    "Lay it.",
+                    "Rest it.",
+                    "Lean it.",
+                    "Prop it.",
+                    "Support it.",
+                    "Brace it.",
+                    "Prop it up.",
+                    "Hold it up.",
+                    "Sustain it.",
+                    "Maintain it.",
+                    "Uphold it.",
+                    "Back it.",
+                    "Endorse it.",
+                    "Sponsor it.",
+                    "Champion it.",
+                    "Advocate for it.",
+                    "Promote it.",
+                    "Push it.",
+                    "Drive it.",
+                    "Lead it.",
+                    "Guide it.",
+                    "Direct it.",
+                    "Steer it.",
+                    "Navigate it.",
+                    "Pilot it.",
+                    "Captain it.",
+                    "Command it.",
+                    "Order it.",
+                    "Direct it.",
+                    "Instruct it.",
+                    "Tell it.",
+                    "Ask it.",
+                    "Request it.",
+                    "Demand it.",
+                    "Require it.",
+                    "Need it.",
+                    "Want it.",
+                    "Wish it.",
+                    "Desire it.",
+                    "Crave it.",
+                    "Long for it.",
+                    "Yearn for it.",
+                    "Hunger for it.",
+                    "Thirst for it.",
+                    "Seek it.",
+                    "Pursue it.",
+                    "Chase it.",
+                    "Hunt it.",
+                    "Track it.",
+                    "Trace it.",
+                    "Follow it.",
+                    "Shadow it.",
+                    "Dog it.",
+                    "Tail it.",
+                    "Monitor it.",
+                    "Watch it.",
+                    "Observe it.",
+                    "View it.",
+                    "See it.",
+                    "Look at it.",
+                    "Gaze at it.",
+                    "Stare at it.",
+                    "Glance at it.",
+                    "Peek at it.",
+                    "Peep at it.",
+                    "Peer at it.",
+                    "Scan it.",
+                    "Skim it.",
+                    "Read it.",
+                    "Study it.",
+                    "Learn it.",
+                    "Master it.",
+                    "Know it.",
+                    "Understand it.",
+                    "Comprehend it.",
+                    "Grasp it.",
+                    "Realize it.",
+                    "Recognize it.",
+                    "Appreciate it.",
+                    "Value it.",
+                    "Cherish it.",
+                    "Treasure it.",
+                    "Esteem it.",
+                    "Respect it.",
+                    "Honor it.",
+                    "Revere it.",
+                    "Admire it.",
+                    "Adore it.",
+                    "Love it.",
+                    "Like it.",
+                    "Enjoy it.",
+                    "Savor it.",
+                    "Relish it.",
+                    "Delight in it.",
+                    "Revel in it.",
+                    "Bask in it.",
+                    "Wallow in it.",
+                    "Bathe in it.",
+                    "Swim in it.",
+                    "Drown in it.",
+                    "Sink in it.",
+                    "Float in it.",
+                    "Drift in it.",
+                    "Sail in it.",
+                    "Cruise in it.",
+                    "Voyage in it.",
+                    "Travel in it.",
+                    "Journey in it.",
+                    "Tour it.",
+                    "Visit it.",
+                    "Drop in it.",
+                    "Stop by it.",
+                    "Swing by it.",
+                    "Pop in it.",
+                    "Come in it.",
+                    "Go in it.",
+                    "Enter it.",
+                    "Exit it.",
+                    "Leave it.",
+                    "Depart it.",
+                    "Forsake it.",
+                    "Abandon it.",
+                    "Desert it.",
+                    "Quit it.",
+                    "Resign it.",
+                    "Retire it.",
+                    "Withdraw it.",
+                    "Retreat it.",
+                    "Pull back it.",
+                    "Fall back it.",
+                    "Give up it.",
+                    "Surrender it.",
+                    "Yield it.",
+                    "Submit it.",
+                    "Capitulate it.",
+                    "Concede it.",
+                    "Admit it.",
+                    "Confess it.",
+                    "Acknowledge it.",
+                    "Own it.",
+                    "Claim it.",
+                    "Assert it.",
+                    "Declare it.",
+                    "State it.",
+                    "Say it.",
+                    "Tell it.",
+                    "Speak it.",
+                    "Utter it.",
+                    "Voice it.",
+                    "Express it.",
+                    "Articulate it.",
+                    "Phrase it.",
+                    "Word it.",
+                    "Formulate it.",
+                    "Frame it.",
+                    "Cast it.",
+                    "Mold it.",
+                    "Shape it.",
+                    "Craft it.",
+                    "Write it.",
+                    "Compose it.",
+                    "Pen it.",
+                    "Draft it.",
+                    "Sketch it.",
+                    "Outline it.",
+                    "Summarize it.",
+                    "Brief it.",
+                    "Abstract it.",
+                    "Digest it.",
+                    "Condense it.",
+                    "Compress it.",
+                    "Shrink it.",
+                    "Reduce it.",
+                    "Minimize it.",
+                    "Lessen it.",
+                    "Decrease it.",
+                    "Lower it.",
+                    "Drop it.",
+                    "Cut it.",
+                    "Slash it.",
+                    "Trim it.",
+                    "Prune it.",
+                    "Clip it.",
+                    "Shear it.",
+                    "Shave it.",
+                    "Crop it.",
+                    "Dock it.",
+                    "Bob it.",
+                    "Shorten it.",
+                    "Curtail it.",
+                    "Abbridge it.",
+                    "Shorten it.",
+                    "Contract it.",
+                    "Condense it.",
+                    "Concentrate it.",
+                    "Focus it.",
+                    "Center it.",
+                    "Centralize it.",
+                    "Consolidate it.",
+                    "Unify it.",
+                    "Merge it.",
+                    "Fuse it.",
+                    "Blend it.",
+                    "Mix it.",
+                    "Combine it.",
+                    "Integrate it.",
+                    "Incorporate it.",
+                    "Include it.",
+                    "Embrace it.",
+                    "Encompass it.",
+                    "Cover it.",
+                    "Span it.",
+                    "Cross it.",
+                    "Traverse it.",
+                    "Navigate it.",
+                    "Travel it.",
+                    "Journey it.",
+                    "Voyage it.",
+                    "Cruise it.",
+                    "Sail it.",
+                    "Fly it.",
+                    "Drive it.",
+                    "Ride it.",
+                    "Walk it.",
+                    "Run it.",
+                    "Jog it.",
+                    "Sprint it.",
+                    "Dash it.",
+                    "Race it.",
+                    "Speed it.",
+                    "Hasten it.",
+                    "Hurry it.",
+                    "Rush it.",
+                    "Expedite it.",
+                    "Accelerate it.",
+                    "Quicken it.",
+                    "Fast-track it.",
+                    "Streamline it.",
+                    "Simplify it.",
+                    "Ease it.",
+                    "Facilitate it.",
+                    "Enable it.",
+                    "Empower it.",
+                    "Authorize it.",
+                    "Permit it.",
+                    "Allow it.",
+                    "Let it.",
+                    "Leave it.",
+                    "Free it.",
+                    "Liberate it.",
+                    "Release it.",
+                    "Dismiss it.",
+                    "Discharge it.",
+                    "Relieve it.",
+                    "Disburden it.",
+                    "Unburden it.",
+                    "Unload it.",
+                    "Unencumber it.",
+                    "Unblock it.",
+                    "Unclog it.",
+                    "Open it.",
+                    "Unlock it.",
+                    "Unseal it.",
+                    "Untie it.",
+                    "Unfasten it.",
+                    "Unbuckle it.",
+                    "Unbutton it.",
+                    "Unzip it.",
+                    "Unwrap it.",
+                    "Unpack it.",
+                    "Unfold it.",
+                    "Unroll it.",
+                    "Unravel it.",
+                    "Untangle it.",
+                    "Unknot it.",
+                    "Loosen it.",
+                    "Slacken it.",
+                    "Relax it.",
+                    "Loosen it.",
+                    "Loosen it.",
+                    "Loosen it.",
+                    "Loosen it.",
                 ]
             )
         except Exception:
@@ -2024,27 +2945,154 @@ class OrunexApp(ctk.CTk):
             # silently.  They must not create a status line or a chat bubble.
             return
         text = self._strip_live_wake_word(text) or text
-        # Pin the spoken reply to the user's language.  Guessing from a short
-        # answer ("Done.") used to flip English turns to the Spanish voice.
         try:
             folded_voice = str(text).lower()
-            english_hit = re.search(
+            english_hits = len(re.findall(
                 r"\b(open|please|hello|thanks|thank|what|show|play|screen|"
-                r"tradingview|google|sheets|chrome|look|see)\b",
+                r"tradingview|google|sheets|chrome|look|see|buy|sell|trade|"
+                r"order|entry|stop|profit|loss|take|market|limit|chart|"
+                r"candle|price|position|paper|real|funds|broker|account|"
+                r"balance|equity|margin|placed|closed|filled|pending|"
+                r"confirmed|rejected|cancelled|executed|processing|executing|"
+                r"done|ready|success|error|fail|failure|warning|info|status|"
+                r"update|log|report|summary|yes|no|maybe|today|yesterday|"
+                r"tomorrow|now|soon|later|always|never|here|there|where|"
+                r"when|why|who|which|what|how|good|bad|better|worse|best|"
+                r"worst|great|terrible|happy|sad|angry|excited|nervous|calm|"
+                r"hot|cold|warm|cool|wind|rain|sun|cloud|red|blue|green|"
+                r"yellow|black|white|gray|orange|purple|one|two|three|four|"
+                r"five|six|seven|eight|nine|ten|hundred|thousand|million|"
+                r"dollar|euro|pound|yen|money|cash|hour|minute|second|day|"
+                r"week|month|year|monday|tuesday|wednesday|thursday|friday|"
+                r"saturday|sunday|january|february|march|april|may|june|"
+                r"july|august|september|october|november|december|spring|"
+                r"summer|autumn|winter|north|south|east|west|country|city|"
+                r"town|village|street|avenue|house|apartment|building|office|"
+                r"store|market|restaurant|cafe|bar|hotel|hospital|school|"
+                r"church|bank|post|police|fire|ambulance|car|motorcycle|"
+                r"bicycle|bus|train|plane|boat|helicopter|eat|drink|sleep|"
+                r"walk|run|swim|fly|read|write|draw|paint|sing|dance|play|"
+                r"work|study|teach|learn|pay|charge|love|hate|like|dislike|"
+                r"prefer|choose|more|less|very|quite|everything|nothing|"
+                r"something|somebody|nobody|everybody|all|none|my|your|"
+                r"his|her|its|our|their|this|that|these|those|which|who|"
+                r"whom|whose|how much|how many|where|to where|from where|"
+                r"when|since|until|for|with|without|on|under|between|toward|"
+                r"from|and|or|but|although|if|like|while|then|after|before|"
+                r"during|already|still|probably|possibly|certainly|surely|"
+                r"maybe|perhaps|well|badly|optimal|pessimal|easy|difficult|"
+                r"simple|complex|fast|slow|quick|paused|regular|excellent|"
+                r"high|low|big|small|medium|long|short|wide|narrow|fat|thin|"
+                r"slim|young|old|elderly|child|adult|man|woman|boy|girl|"
+                r"guy|father|mother|son|daughter|brother|sister|friend|"
+                r"boss|employee|client|provider|doctor|nurse|teacher|student|"
+                r"lawyer|judge|police|firefighter|cook|waiter|waitress|artist|"
+                r"musician|painter|writer|athlete|player|coach|king|queen|"
+                r"prince|princess|god|angel|demon|ghost|cat|dog|bird|fish|"
+                r"horse|cow|pig|sheep|goat|chicken|duck|rabbit|lion|tiger|"
+                r"elephant|giraffe|monkey|bear|wolf|fox|deer|squirrel|snake|"
+                r"lizard|turtle|frog|fish|shark|whale|dolphin|spider|scorpion|"
+                r"bee|wasp|butterfly|ant|fly|mosquito|flower|tree|plant|grass|"
+                r"fruit|apple|pear|orange|banana|grape|strawberry|watermelon|"
+                r"melon|vegetable|lettuce|tomato|onion|potato|carrot|corn|"
+                r"bean|rice|bread|cheese|butter|egg|meat|chicken|beef|pork|"
+                r"lamb|turkey|milk|yogurt|ice cream|juice|soda|water|coffee|"
+                r"tea|chocolate|beer|wine|salt|sugar|honey|jam|bread|cake|"
+                r"cookie|candy|soup|salad|sandwich|hamburger|pizza|ice|golf|"
+                r"tennis|soccer|basketball|baseball|volleyball|swimming|"
+                r"cycling|run|walk|hiking|camping|fishing|hunting|skiing|"
+                r"skating|dance|sing|music|painting|sculpture|theater|cinema|"
+                r"television|radio|internet|phone|computer|tablet|watch|"
+                r"camera|microphone|speaker|printer|keyboard|mouse|screen|"
+                r"cable|battery|charger|plug|outlet|lamp|light|candle|bulb|"
+                r"door|window|wall|ceiling|floor|bed|sofa|chair|table|shelf|"
+                r"wardrobe|kitchen|bathroom|bedroom|living room|dining room|"
+                r"garden|patio|balcony|terrace|garage|storage|attic|basement|"
+                r"country|continent|world|planet|earth|sun|moon|star|sky|cloud|"
+                r"sea|ocean|river|lake|pond|mountain|hill|valley|desert|jungle|"
+                r"forest|meadow|plain|beach|island|peninsula|bay|gulf|river|"
+                r"stream|spring|waterfall|volcano|geyser|earthquake|hurricane|"
+                r"tornado|flood|drought|fire|tremor|accident|emergency|disaster|"
+                r"crisis|war|peace|conflict|negotiation|law|rule|norm|standard|"
+                r"policy|government|president|minister|senator|deputy|mayor|"
+                r"councilor|governor|democracy|republic|monarchy|dictatorship|"
+                r"election|vote|campaign|debate|tax|budget|debt|credit|bank|"
+                r"money|cash|card|check|purchase|sale|rent|mortgage|loan|"
+                r"insurance|policy|claim|coverage|health|illness|pain|fever|"
+                r"cough|cold|flu|covid|virus|bacteria|vaccine|medicine|pill|"
+                r"injection|doctor|nurse|hospital|clinic|pharmacy|appointment|"
+                r"prescription|diagnosis|treatment|operation|surgery|recovery|"
+                r"rehabilitation|exercise|sport|gym|training|diet|nutrition|"
+                r"food|meal|drink|breakfast|lunch|dinner|snack|dessert|drink|"
+                r"soda|juice|water|milk|coffee|tea|chocolate|beer|wine|liquor\b",
                 folded_voice,
-            )
-            spanish_hit = re.search(
+            ))
+            spanish_hits = len(re.findall(
                 r"\b(abre|abrir|hola|gracias|quiero|puedes|pantalla|mira|"
-                r"entra|reproduce|hojas|calculadora)\b",
+                r"entra|reproduce|hojas|calculadora|para|que|como|como|ahora|"
+                r"tambien|archivo|tarea|hecho|listo|vale|perfecto|agente|voz|"
+                r"hablar|responder|abriendo|abierto|navegador|orden|entrada|"
+                r"stop|beneficio|perdida|ganar|mercado|limite|grafico|vela|"
+                r"precio|posicion|papel|real|fondos|corredor|cuenta|balance|"
+                r"equidad|margen|cierre|cerrado|confirmado|rechazado|cancelado|"
+                r"ejecutado|procesando|ejecutando|listo|exito|error|fallo|"
+                r"advertencia|informacion|estado|actualizacion|registro|informe|"
+                r"resumen|si|no|quizas|probablemente|seguro|absolutamente|hoy|"
+                r"ayer|manana|ahora|pronto|mas tarde|siempre|nunca|aqui|alli|"
+                r"donde|cuando|por que|quien|cual|que|como|bueno|malo|mejor|"
+                r"peor|gran|terrible|feliz|triste|enojado|emocionado|nervioso|"
+                r"caliente|frio|tibio|ventoso|lluvioso|soleado|nublado|rojo|azul|"
+                r"verde|amarillo|negro|blanco|gris|naranja|purpura|uno|dos|tres|"
+                r"cuatro|cinco|seis|siete|ocho|nueve|diez|cien|mil|millon|dolar|"
+                r"euro|libra|yen|dinero|efectivo|hora|minuto|segundo|dia|semana|"
+                r"mes|ano|lunes|martes|miercoles|jueves|viernes|sabado|domingo|"
+                r"enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|"
+                r"octubre|noviembre|diciembre|primavera|verano|otono|invierno|"
+                r"norte|sur|este|oeste|pais|ciudad|pueblo|aldea|calle|avenida|"
+                r"casa|apartamento|edificio|oficina|tienda|mercado|restaurante|"
+                r"cafe|bar|hotel|hospital|escuela|iglesia|banco|codigo|correo|"
+                r"policia|bomberos|ambulancia|coche|motocicleta|bicicleta|autobus|"
+                r"tren|avion|barco|helicoptero|comer|beber|dormir|caminar|correr|"
+                r"nadar|volar|leer|escribir|dibujar|pintar|cantar|bailar|jugar|trabajar|"
+                r"estudiar|ensenar|aprender|comprar|vender|pagar|cargar|amar|odiar|"
+                r"gustar|no gustar|preferir|elegir|mejor|peor|mas|menos|muy|bastante|"
+                r"todo|nada|algo|alguien|nadie|todos|mi|tu|su|su|su|nuestro|vuestro|sus|"
+                r"este|ese|estos|esos|cual|quien|a quien|de quien|cuanto|cuantos|"
+                r"donde|hacia donde|desde donde|cuando|desde|hasta|para|con|sin|en|"
+                r"bajo|entre|hacia|desde|y|o|pero|aunque|si|como|mientras|luego|despues|"
+                r"antes|durante|ya|todavia|siempre|nunca|a menudo|frecuentemente|raramente|"
+                r"probablemente|posiblemente|seguramente|seguro|bien|mal|mejor|peor|"
+                r"optimo|pesimo|facil|dificil|simple|complejo|rapido|lento|"
+                r"regular|excelente|alto|bajo|grande|pequeno|mediano|largo|corto|"
+                r"ancho|estrecho|gordo|delgado|joven|viejo|anciano|nino|adulto|hombre|"
+                r"mujer|nino|nina|chico|padre|madre|hijo|hija|hermano|hermana|amigo|"
+                r"companero|jefe|empleado|cliente|proveedor|medico|enfermera|profesor|"
+                r"estudiante|abogado|juez|policia|bombero|cocinero|camarero|camarera|"
+                r"artista|musico|pintor|escritor|atleta|jugador|entrenador|rey|reina|"
+                r"principe|princesa|dios|angel|demon|fantasma|gato|perro|pajaro|pez|"
+                r"caballo|vaca|cerdo|oveja|cabra|pollo|pato|conejo|leon|tigre|elefante|"
+                r"jirafa|mono|oso|lobo|zorro|ciervo|conejo|ardilla|serpiente|lagarto|"
+                r"tortuga|rana|pez|tiburon|ballena|delfin|araña|escorpion|abeja|"
+                r"avispa|mariposa|hormiga|mosca|mosquito|flor|arbol|planta|hierba|"
+                r"fruta|manzana|pera|naranja|platano|uva|fresa|sandia|melon|"
+                r"verdura|lechuga|tomate|cebolla|patata|zanahoria|maiz|frijol|arroz|pan|"
+                r"queso|mantequilla|huevo|carne|pollo|ternera|cerdo|cordero|pavo|leche|"
+                r"yogur|helado|jugo|refresco|agua|cafe|te|chocolate|cerveza|vino|sal|"
+                r"azucar|mermelada|pan|pastel|galleta|caramelo|sopa|ensalada|"
+                r"sanwich|hamburguesa|pizza|taco|burrito|quesadilla|tamales\b",
                 folded_voice,
-            )
-            if english_hit and not spanish_hit:
+            ))
+            if english_hits and not spanish_hits:
                 self._live_voice_language = "en"
-            elif spanish_hit:
+            elif spanish_hits and not english_hits:
                 self._live_voice_language = "es"
+            elif english_hits and spanish_hits:
+                if english_hits >= spanish_hits:
+                    self._live_voice_language = "en"
+                else:
+                    self._live_voice_language = "es"
         except Exception:
             pass
-        recent = getattr(self, "_live_recent_transcripts", None)
         if recent is None:
             from collections import deque
 
@@ -2487,6 +3535,7 @@ class OrunexApp(ctk.CTk):
         self.status_host.pack(side="bottom", fill="x")
         self._build_thinking_chip(self.status_host)
         self._build_vscode_chip(self.status_host)
+        self._build_executing_chip(self.status_host)
         self._build_agent_log(self.workspace_frame)
 
         self.history_frame = ctk.CTkFrame(
@@ -3356,6 +4405,31 @@ class OrunexApp(ctk.CTk):
             canvas.create_oval(x2 - 2 * radius, y1, x2, y2, fill=fill, outline=""),
         ]
 
+    @property
+    def is_processing(self):
+        """Whether Orunex is actively working on a task.
+
+        Setting this to ``True`` shows the animated ``Executing...`` pill below
+        the chat; setting it back to ``False`` hides it.  This centralises the
+        visual feedback so every code path that starts/ends a task shows or
+        hides the chip consistently.
+        """
+        return getattr(self, "_is_processing", False)
+
+    @is_processing.setter
+    def is_processing(self, value):
+        value = bool(value)
+        if value == getattr(self, "_is_processing", False):
+            return
+        self._is_processing = value
+        # Tk updates must run on the main thread; worker threads set this flag
+        # while executing GUI actions, so schedule the show/hide on the main
+        # loop instead of touching widgets directly.
+        if value:
+            self.after(0, self._show_executing)
+        else:
+            self.after(0, self._hide_executing_if_unheld)
+
     def _build_thinking_chip(self, parent):
         """Create the animated RGB ``Thinking...`` pill for the chat header."""
         try:
@@ -3709,12 +4783,72 @@ class OrunexApp(ctk.CTk):
 
         self._thinking_after_id = self.after(70, self._animate_thinking)
 
+    # ------------------------------------------------------------------
+    # "Executing..." desktop overlay - plain blue text, no background.
+    # Rendered by a Win32 layered window (ExecutingOverlay) on its own
+    # thread, so it stays visible over ANY application (TradingView
+    # included) while the agent is active, not only inside Orunex.
+    # ------------------------------------------------------------------
+    def _build_executing_chip(self, parent=None):
+        """Create the desktop ``Executing...`` overlay (lazy Win32 window)."""
+        self._executing_overlay = None
+        self.executing_window = None
+        self.executing_canvas = None
+
+    def _ensure_executing_overlay(self):
+        overlay = getattr(self, "_executing_overlay", None)
+        if overlay is None:
+            try:
+                from _orunex_libs.executing_overlay import ExecutingOverlay
+
+                overlay = ExecutingOverlay()
+                self._executing_overlay = overlay
+            except Exception as exc:
+                print(f"[WARN] Executing overlay unavailable: {exc}")
+                return None
+        return overlay
+
+    def _show_executing(self):
+        """Show the desktop Executing... overlay while a task runs."""
+        overlay = self._ensure_executing_overlay()
+        if overlay is None:
+            return
+        self._executing_visible = True
+        try:
+            overlay.start()
+        except Exception:
+            pass
+
+    def _hide_executing_if_unheld(self):
+        """Hide the overlay unless a delegated task is still holding it."""
+        if getattr(self, "_is_processing", False):
+            return
+        if int(getattr(self, "_executing_holds", 0) or 0) > 0:
+            return
+        self._hide_executing()
+
+    def _hide_executing(self):
+        """Hide the desktop Executing... overlay."""
+        self._executing_visible = False
+        overlay = getattr(self, "_executing_overlay", None)
+        if overlay is not None:
+            try:
+                overlay.stop(wait=False)
+            except Exception:
+                pass
+
+    def _animate_executing(self):
+        """Compatibility hook: the Win32 overlay animates on its own thread."""
+
     def _show_activity_line(self, message, level="info"):
         """Restore the normal activity line and hide the animated chip."""
         if not hasattr(self, "activity_lbl") or not self.activity_lbl.winfo_exists():
             return
         self._hide_thinking()
         self._hide_vscode_connecting(show_thinking=False)
+        # NOTE: we intentionally do NOT hide the Executing... chip here: it must
+        # stay visible while any task (including GUI mouse/keyboard execution)
+        # is running, so the user always sees that Orunex is active.
         colors = {
             "info": THEME["text_dim"],
             "warn": THEME["warning"],
@@ -4879,6 +6013,7 @@ class OrunexApp(ctk.CTk):
             "css": ("CSS", "#175CD3", "#EFF8FF"),
             "json": ("JSON", "#475467", "#F2F4F7"),
             "md": ("MD", "#475467", "#F2F4F7"),
+            "bmd": ("BMD", "#0E7490", "#ECFEFF"),
             "txt": ("TXT", "#475467", "#F2F4F7"),
             "png": ("IMG", "#5925DC", "#F4F3FF"),
             "jpg": ("IMG", "#5925DC", "#F4F3FF"),
@@ -4897,7 +6032,7 @@ class OrunexApp(ctk.CTk):
             )
             return
         ext = (kind or os.path.splitext(path)[1].lstrip(".")).lower()
-        if ext in ("py", "js", "ts", "html", "css", "json", "md", "txt", "java", "cpp", "c", "cs"):
+        if ext in ("py", "js", "ts", "html", "css", "json", "md", "bmd", "txt", "java", "cpp", "c", "cs"):
             try:
                 from integrations import vscode_integration
 
@@ -5318,10 +6453,15 @@ class OrunexApp(ctk.CTk):
                 # Execute OS actions (YouTube, apps, power control, etc.)
                 from _orunex_libs.os_executor import intercept_and_execute # type: ignore
                 exec_results = intercept_and_execute(ans)
+
+                from core.trade_intent import detect_language
+                remote_language = detect_language(task)
                 
                 # Clean answer for GUI and Simplex display
                 clean_ans = ans.replace("[Cerebro]", "").replace("[Orunex]", "").replace("[CEREBRO]", "").strip()
                 if exec_results and exec_results != ans.strip():
+                    if remote_language == "en":
+                        exec_results = self._localize_executor_result(exec_results)
                     clean_ans = f"{clean_ans}\n\n{exec_results}"
                 
                 # Append to laptop screen UI
@@ -5366,6 +6506,37 @@ class OrunexApp(ctk.CTk):
                     )
 
         threading.Thread(target=runner, daemon=True).start()
+
+    def _localize_executor_result(self, text):
+        """Translate the common OS-executor confirmations to English.
+
+        The executor predates the language mirror and returns Spanish action
+        logs.  Remote English tasks must not surface those logs verbatim.
+        """
+        replacements = [
+            (
+                r"\[OK\] Abriendo (.+?) en el navegador\.",
+                r"[OK] Opening \1 in the browser.",
+            ),
+            (
+                r"\[OK\] Abriendo (.+?) en ([A-Za-z0-9 ]+)\.",
+                r"[OK] Opening \1 in \2.",
+            ),
+            (r"\[ERR\] No se pudo abrir (.+?)\.", r"[ERR] Could not open \1."),
+            (r"\[ERR\] No se recibio una URL\.", "[ERR] No URL was received."),
+            (r"\[ERR\] URL no válida: (.+)", r"[ERR] Invalid URL: \1"),
+            (
+                r"\[WARN\] No encontré (.+?); abriendo (.+?) en el navegador predeterminado\.",
+                r"[WARN] I could not find \1; opening \2 in the default browser.",
+            ),
+            (
+                r"\[WARN\] No pude iniciar (.+?) \((.+?)\); abriendo en el navegador predeterminado\.",
+                r"[WARN] I could not start \1 (\2); opening in the default browser.",
+            ),
+        ]
+        for pattern, replacement in replacements:
+            text = re.sub(pattern, replacement, text)
+        return text
 
     def listen_voice(self):
         # Check dependencies BEFORE opening UI
@@ -5690,10 +6861,12 @@ except:
         filename = os.path.basename(artifact.get("path", ""))
         label = artifact.get("label", "file")
         title = artifact.get("title", filename)
+        summary = str(artifact.get("summary") or "").strip()
         message = (
             f"Listo. Creé **{filename}** con Artifact Studio.\n"
-            f"Tipo: {label} · Tema: {title}\n\n"
-            "Puedes abrirlo directamente desde la tarjeta de abajo."
+            f"Tipo: {label} · Tema: {title}\n"
+            + (f"Contenido: {summary}\n" if summary else "")
+            + "\nPuedes abrirlo directamente desde la tarjeta de abajo."
         )
         self._last_task_error = False
         self.append_history(
@@ -5703,6 +6876,35 @@ except:
         )
         self.write_real_time(f"Artifact ready: {filename}", "success")
         self._show_activity_line("Artifact ready.", "success")
+        self._set_stream_status("Ready", "blue")
+        self._finish_local_task()
+
+    def _complete_bmd_task(self, result):
+        """Render a real BMD engine result and its clickable card."""
+        ok = bool(result.get("ok"))
+        message = str(result.get("message") or "").strip()
+        if not message:
+            message = (
+                "BMD listo." if ok else "El motor BMD no pudo completar la operación."
+            )
+        artifact = result.get("artifact") or {}
+        artifact_path = str(artifact.get("path") or "")
+        if artifact_path and os.path.exists(artifact_path):
+            title = artifact.get("title") or os.path.basename(artifact_path)
+            tag = artifact_studio.artifact_tag(artifact_path, "bmd", title)
+            message = message + "\n\n" + tag
+        self._last_task_error = not ok
+        self.append_history(
+            message,
+            tag="Cerebro",
+            color=AGENTS_INFO["Cerebro"]["color"],
+        )
+        first_line = message.splitlines()[0][:180] if message else "BMD"
+        self.write_real_time(first_line, "success" if ok else "error")
+        self._show_activity_line(
+            "BMD ready." if ok else "BMD failed.",
+            "success" if ok else "error",
+        )
         self._set_stream_status("Ready", "blue")
         self._finish_local_task()
 
@@ -5871,6 +7073,21 @@ except:
             pass
         return "", context
 
+    def _current_tradingview_symbol(self):
+        """Best-effort symbol from the native TradingView window title."""
+        try:
+            from _orunex_libs.virtual_input import find_tradingview_window
+
+            window = find_tradingview_window()
+            title = str(getattr(window, "title", "") or "") if window else ""
+            match = re.search(
+                r"\b([A-Z]{2,12}(?:USDT|USDC|USD|BTC|ETH))\b",
+                title.upper(),
+            )
+            return match.group(0) if match else ""
+        except Exception:
+            return ""
+
     def _detect_agent_delegation(self, task):
         """Detect hyper-complex work that must leave the Live fast path.
 
@@ -5887,6 +7104,12 @@ except:
         if not folded:
             return None
 
+        from core.trade_intent import detect_language
+
+        language = detect_language(str(task))
+        # The watcher uses this to localise the final delegated result.
+        self._delegation_language = language
+
         android_fix = (
             any(word in folded for word in ("emulador", "emulator", "android"))
             and any(
@@ -5895,11 +7118,18 @@ except:
             )
         ) or folded.startswith("!fix")
         if android_fix:
-            return (
-                "!fix " + str(task).strip(),
-                "Delegando la corrección Android al agente: abrirá el emulador, "
-                "diagnosticará en VS Code, recompilará y verificará. Te aviso al terminar.",
-            )
+            if language == "en":
+                message = (
+                    "Delegating the Android fix to the agent: it will open the "
+                    "emulator, diagnose in VS Code, rebuild and verify. I'll "
+                    "report back when it finishes."
+                )
+            else:
+                message = (
+                    "Delegando la corrección Android al agente: abrirá el emulador, "
+                    "diagnosticará en VS Code, recompilará y verificará. Te aviso al terminar."
+                )
+            return ("!fix " + str(task).strip(), message)
 
         # Follow-ups such as "haz un análisis para una entrada" right after
         # opening TradingView carry no symbol/app name; the command context
@@ -5926,41 +7156,32 @@ except:
         )
         if trading_analysis or folded.startswith("!trade"):
             symbol_match = re.search(r"\b[A-Z]{2,12}(?:USDT|USD|USDC|BTC|ETH)\b", str(task).upper())
-            symbol = symbol_match.group(0) if symbol_match else "BTCUSDT"
+            symbol_explicit = bool(symbol_match)
+            if symbol_match:
+                symbol = symbol_match.group(0)
+            else:
+                # "haz una entrada" carries no symbol.  Trade the chart the
+                # user is actually looking at instead of defaulting to
+                # BTCUSDT and creating a symbol mismatch Muse must reject.
+                symbol = self._current_tradingview_symbol() or "BTCUSDT"
             import json as _json
 
-            # "Analiza" and "ejecuta" are different risk decisions.  An
-            # analysis may propose a setup but must clear the autonomous
+            from core.trade_intent import is_explicit_entry_request
+
+            # "Analiza" and "haz una entrada" are different risk decisions.
+            # An analysis may propose a setup but must clear the autonomous
             # confidence bar; only an explicit order can use the lower
             # explicit-order bar.  The backend still requires Muse to return
             # BUY/SELL with coherent SL/TP and the deterministic risk gate.
-            analysis_only = any(
-                word in folded
-                for word in (
-                    "analiza", "analizar", "analisis", "analysis",
-                    "analyze", "analyse",
-                )
-            )
-            explicit_execution = bool(
-                re.search(r"\b(ejecuta|ejecutar|execute)\b", folded)
-                or re.search(
-                    r"\b(abre|abrir|pon|poner|coloca|colocar|ordena|ordenar)\b"
-                    r"[^.]*\b(orden|order|paper|posicion|position)\b",
-                    folded,
-                )
-                or (
-                    re.search(r"\b(compra|comprar|buy|vende|vender|sell)\b", folded)
-                    and not analysis_only
-                )
-            )
+            explicit_execution = is_explicit_entry_request(str(task))
             if explicit_execution:
                 note = (
-                    "Delegated order: analyse the live TradingView chart and "
-                    "execute the best paper entry the setup supports. Use the "
-                    "live chart price as entry and visible support/resistance "
-                    "for stop loss / take profit. Paper only, no real broker. "
-                    "HOLD only if the chart symbol is unreadable or no "
-                    "coherent stop exists."
+                    "Delegated order: the user explicitly ordered a paper "
+                    "entry. Execute the best paper entry the live TradingView "
+                    "chart supports. HOLD and REJECT are not allowed; choose "
+                    "BUY or SELL. Use the live chart price as entry and "
+                    "visible support/resistance for stop loss / take profit. "
+                    "Paper only, no real broker."
                 )
             else:
                 note = (
@@ -5971,8 +7192,10 @@ except:
                 )
             alert = {
                 "symbol": symbol,
+                "symbol_explicit": symbol_explicit,
                 "timeframe": "1h",
                 "execute": explicit_execution,
+                "language": language,
                 "note": note,
             }
             # Dictated order details ("compra BTCUSDT a 80800") turn a vague
@@ -5987,16 +7210,36 @@ except:
             ]
             if prices:
                 alert["price"] = prices[0]
-            action_label = "ejecución paper" if explicit_execution else "análisis"
-            article = "la" if explicit_execution else "el"
-            return (
-                "!trade " + _json.dumps(alert),
-                f"Delegando {article} {action_label} de {symbol} en TradingView "
-                "al agente. Solo abrirá una orden paper si Muse lo confirma.",
-            )
+            if explicit_execution:
+                if language == "en":
+                    message = (
+                        f"Delegating the paper execution of {symbol} in "
+                        "TradingView to the agent. Muse will choose BUY or "
+                        "SELL and open the paper order; real funds are never "
+                        "used."
+                    )
+                else:
+                    message = (
+                        f"Delegando la ejecución paper de {symbol} en TradingView "
+                        "al agente. Muse elegirá BUY o SELL y abrirá la orden "
+                        "paper; nunca se usan fondos reales."
+                    )
+            else:
+                if language == "en":
+                    message = (
+                        f"Delegating the analysis of {symbol} in TradingView "
+                        "to the agent. It will only open a paper order if "
+                        "Muse confirms it."
+                    )
+                else:
+                    message = (
+                        f"Delegando el análisis de {symbol} en TradingView al "
+                        "agente. Solo abrirá una orden paper si Muse lo confirma."
+                    )
+            return ("!trade " + _json.dumps(alert), message)
         return None
 
-    def _delegate_agent_task(self, payload, message):
+    def _delegate_agent_task(self, payload, message, language="es"):
         """Start the headless agent backend for a delegated complex task."""
         try:
             import subprocess
@@ -6046,8 +7289,18 @@ except:
                 stderr=subprocess.STDOUT,
                 creationflags=flags,
             )
+            # The delegated agent keeps working for minutes after the chat
+            # thread returns; hold the desktop Executing... overlay until it
+            # actually finishes.
+            self._executing_holds = int(getattr(self, "_executing_holds", 0) or 0) + 1
+            try:
+                self.after(0, self._show_executing)
+            except Exception:
+                pass
 
-            def _watch_delegated(proc=process, handle=log_handle, path=log_path):
+            def _watch_delegated(
+                proc=process, handle=log_handle, path=log_path, lang=language
+            ):
                 try:
                     proc.wait()
                 except Exception:
@@ -6071,11 +7324,25 @@ except:
                 except Exception:
                     message = ""
                 if not message:
-                    message = "La tarea delegada terminó sin un resultado visible."
+                    message = (
+                        "The delegated task finished without a visible result."
+                        if str(lang).lower().startswith("en")
+                        else "La tarea delegada terminó sin un resultado visible."
+                    )
                 try:
                     self.after(
-                        0, lambda m=message: self._relay_delegated_result(m)
+                        0,
+                        lambda m=message, l=lang: self._relay_delegated_result(
+                            m, language=l
+                        ),
                     )
+                except Exception:
+                    pass
+                try:
+                    self._executing_holds = max(
+                        0, int(getattr(self, "_executing_holds", 1) or 0) - 1
+                    )
+                    self.after(0, self._hide_executing_if_unheld)
                 except Exception:
                     pass
 
@@ -6088,9 +7355,9 @@ except:
             print(f"[Live] Delegation failed: {exc}", flush=True)
             return False
 
-    def _relay_delegated_result(self, message):
+    def _relay_delegated_result(self, message, language="es"):
         """Show (and speak) the delegated Muse decision in this chat."""
-        text = self._format_delegated_result(message)
+        text = self._format_delegated_result(message, language=language)
         if not text or getattr(self, "_shutting_down", False):
             return
         try:
@@ -6109,13 +7376,15 @@ except:
             except Exception:
                 pass
 
-    def _format_delegated_result(self, message):
+    def _format_delegated_result(self, message, language="es"):
         """Turn a backend task summary into a human chat sentence.
 
         Backend summaries are logs for operators (``paper_trading rejected
         No paper order: confidence …``).  The user should read a decision,
-        not an internal state name.
+        not an internal state name.  ``language`` mirrors the user's latest
+        instruction so an English order never gets a canned Spanish reply.
         """
+        english = str(language or "").lower().startswith("en")
         text = " ".join(str(message or "").split()).strip()
         match = re.match(
             r"(paper_trading|bugfix)\s+[a-z_]+\s+(.*)$", text, re.IGNORECASE
@@ -6125,11 +7394,19 @@ except:
 
         if kind == "paper_trading":
             confidence = re.search(
-                r"confidence\s+([0-9]+(?:\.[0-9]+)?)\s+below\s+threshold\s+([0-9]+(?:\.[0-9]+)?)",
+                r"confidence\s+([0-9]+(?:\.[0-9]+)?)\s+below\s+"
+                r"(?:[a-z-]+\s+)?threshold\s+([0-9]+(?:\.[0-9]+)?)",
                 detail,
                 re.IGNORECASE,
             )
             if confidence:
+                if english:
+                    return (
+                        "Muse analysed the chart but did not open a paper "
+                        f"order: its confidence was {float(confidence.group(1)):.2f} "
+                        f"and the minimum is {float(confidence.group(2)):.2f}. "
+                        "No order was sent."
+                    )
                 return (
                     "Muse analizó el gráfico, pero no abrió orden paper: "
                     f"su confianza fue {float(confidence.group(1)):.2f} y el "
@@ -6143,7 +7420,11 @@ except:
             )
             if hold:
                 rationale = " ".join(hold.group(1).split())
-                message_text = "Muse analizó el gráfico y decidió HOLD, sin entrada."
+                message_text = (
+                    "Muse analysed the chart and decided HOLD, with no entry."
+                    if english
+                    else "Muse analizó el gráfico y decidió HOLD, sin entrada."
+                )
                 return f"{message_text} {rationale}".strip()
             confirmed = re.search(
                 r"PAPER ORDER CONFIRMED\s+(\S+)\s*\|?\s*"
@@ -6158,6 +7439,14 @@ except:
                     order_id, side, quantity, symbol, entry,
                     stop_loss, take_profit, confidence_value,
                 ) = confirmed.groups()
+                if english:
+                    return (
+                        f"Muse confirmed paper order {order_id}: "
+                        f"{side.upper()} {quantity} {symbol} @ {float(entry):,.2f} · "
+                        f"SL {float(stop_loss):,.2f} · TP {float(take_profit):,.2f} · "
+                        f"confidence {float(confidence_value):.2f}. "
+                        "PAPER ONLY mode, no real funds."
+                    )
                 return (
                     f"Muse confirmó una orden paper {order_id}: "
                     f"{side.upper()} {quantity} {symbol} @ {float(entry):,.2f} · "
@@ -6165,8 +7454,26 @@ except:
                     f"confianza {float(confidence_value):.2f}. "
                     "Modo PAPER ONLY, sin fondos reales."
                 )
+            if re.search(
+                r"\b(no paper order|no se abrió|not opened|rejected)\b",
+                detail,
+                re.IGNORECASE,
+            ):
+                lowered = detail.lower()
+                if english:
+                    # The backend may already have localised its summary.
+                    if lowered.startswith("no paper order"):
+                        return detail
+                    return f"No paper order was opened: {detail}"
+                if lowered.startswith("no se abrió"):
+                    return detail
+                return f"No se abrió orden paper: {detail}"
             if re.search(r"\bpaper order\b", detail, re.IGNORECASE):
-                return f"Muse ejecutó una orden paper: {detail}"
+                return (
+                    f"Muse executed a paper order: {detail}"
+                    if english
+                    else f"Muse ejecutó una orden paper: {detail}"
+                )
         return detail or text
 
     def _detect_direct_command(self, task):
@@ -6292,10 +7599,26 @@ except:
             # "Abre TradingView y haz un análisis…" is one complex order, not
             # just "open the app".  Delegating first is what stops the local
             # shortcut from swallowing the analysis half.
-            delegation = self._detect_agent_delegation(task)
+            try:
+                delegation = self._detect_agent_delegation(task)
+            except Exception as delegation_error:
+                # Routing must never leave the composer stuck on
+                # "Thinking...".  A missing import here used to kill the
+                # worker thread silently, so the user saw no action at all.
+                self.after(
+                    0,
+                    lambda e=str(delegation_error): self._complete_direct_command(
+                        f"No pude preparar la tarea delegada: {e}", False
+                    ),
+                )
+                return
             if delegation is not None:
                 payload, delegation_message = delegation
-                if self._delegate_agent_task(payload, delegation_message):
+                if self._delegate_agent_task(
+                    payload,
+                    delegation_message,
+                    language=getattr(self, "_delegation_language", "es"),
+                ):
                     # Persist the delegation as command context: follow-ups
                     # such as "ejecuta la orden" or "haz el análisis" carry
                     # no app name and must stay on the trading path instead
@@ -6456,6 +7779,28 @@ except:
                     lambda m=message, good=ok, said=pre_spoken: self._complete_direct_command(
                         m, good, speak=not (said and good)
                     ),
+                )
+                return
+
+            # ── DETERMINISTIC BMD PATH ────────────────────────────────────
+            # Blockchain Markdown orders run the real engine (CLI + FFI)
+            # before the model.  A .bmd is created, verified, rendered or
+            # audited even when the language model is offline.
+            try:
+                from _orunex_libs.bmd_expert import handle_request as _bmd_handle_request
+
+                bmd_result = _bmd_handle_request(task)
+            except Exception as bmd_error:
+                bmd_result = None
+                self.after(
+                    0,
+                    lambda e=str(bmd_error): self.write_real_time(
+                        f"BMD engine unavailable: {e}", "error"
+                    ),
+                )
+            if bmd_result and bmd_result.get("handled"):
+                self.after(
+                    0, lambda r=bmd_result: self._complete_bmd_task(r)
                 )
                 return
 

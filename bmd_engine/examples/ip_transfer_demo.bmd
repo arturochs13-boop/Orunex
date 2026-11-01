@@ -1,0 +1,50 @@
+---
+block_id: "0xIP_TRANSFER_CORE_001"
+previous_hash: "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+current_hash: "5ef6624162599422624d5cf5411e0811f961aef50170f9cb3383733c80fca0f6283ccdc2a3302afdbd99b596e5dbfe4b1e614bbc929a8a46e10949b4e8a2fc5c"
+mode: "transfer"
+signer_role: "emisor"
+timestamp: 1772500000
+public_key: "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+signature_layer_2: "6e83d0cffb48ab135c106c10eb74c87bbf9bf2ccdfcf5a831094ef49107e396217ff4d130de3e29397a088ee9bec80b299b28bf68d15544256cdc63439eda106"
+payload_encrypted: false
+document_type: "ip_transfer"
+jurisdiction: "Internacional"
+require_cosigner: true
+co_sign_label: "Aceptar y Confirmar Adquisición de IP"
+property_bundle_hash: "b0a71798241fb020346a96579b88acea3539dec088ccf6d72bb5c57922362a746a3d8736c341b7c320ddc4053f7b1030677d38b66bb48cdb0c3a3644bb0835cc"
+property_bundle_size: 500
+property_bundle_destroyed: true
+property_bundle: |
+  cK1MVVgtdjgV1HbeGeWmh08+6CWCia9lUrSZzcLLcrD6Hr9x3bt9fkZjID0vxND+BoG2A7weR/vg
+  AwVa9BPhqm86GBiDJuqrgbj8zq1J/D/Ds4vhKLmMSdLGJvL5bsVb/3AsoOk6Uad12Y3njWRLWTnk
+  bQFiI/irUWkipvhVV7Tk/yn9PcsSwr41gzrbL/801MjA1kx1WyyAmD5ELnPftRgjVnAPh/nuIXSR
+  hYCQJSyIeZATYDJ4egO5tApj20RQvsmzAl95jebo+NOUOfO3nLGHSznrfMixbS5eYMpYP7hc8F6A
+  GhRHWVYIPIjgb/AhfAoBHiRBKrCggpAnJPeo3vvK1Yfvjk4IrjI3gTEdJ/h4GTuA7L9B5EncFqQz
+  ciYMCSSir0LO819Uqyor137uZWl2kGyl3iL1wQy5wTQgo+5HKhcSW87n02YElIZR1LBpDVnJPsFL
+  55y0bQx8ABrVj3NWLVYIJDYulLvzRiga0GKEiD/rmPls8G0vDPohfHLuPkn5A7aupHVz1vNqHsdr
+  FJsbnH0zZecN7hkP8IyVCFplQZxlwWY93J2cVkA73hnjyjHIrzrobAGIBycrUuz3Y0Roz1iRpFb8
+  41Gy/LjhG/wmGhK60wzZ2KBcyy5ODNqtDKfOWcdoUtyEUsoBnaoN47NmcMs=
+---
+
+
+# Contrato de Cesión y Transferencia Total de Código Fuente
+
+Este documento formaliza la cesión definitiva y exclusiva de los derechos de explotación sobre el software adjunto en este bloque.
+
+<!-- bmd:insert_co_sign_button label="Aceptar y Confirmar Adquisición de IP" -->
+
+---
+
+## 1. Declaración de Cesión de Propiedad Intelectual
+
+El Emisor transfiere de forma irrevocable la totalidad del código fuente, algoritmos y documentación contenidos en el paquete de propiedad inyectado en este documento.
+
+Al compilar este bloque:
+- El proyecto fuente local original ha sido destruido en el sistema emisor (semántica de movimiento estricto, sin duplicación de posesión).
+- La titularidad pasa de forma única al poseedor legítimo de este bloque criptográfico.
+
+## 2. Inmutabilidad y Protección Criptográfica
+
+El contenido del código fuente viaja protegido bajo una capa de compresión Zlib nivel 9 y cifrado de flujo autenticado ChaCha20-Poly1305.
+Cualquier intento de descompilación o manipulación sin la clave privada autorizada generará un fallo matemático irreducible.

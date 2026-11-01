@@ -83,6 +83,19 @@ class AgentBrain:
             "Orchestrator ready (workers=4, primary="
             f"{self.settings.meta_model}, fast={self.settings.meta_fast_model})"
         )
+        # Inject the verified BMD Engine knowledge into the Meta FAISS index
+        # without delaying startup.  The sync is idempotent and only touches
+        # the kind="bmd" namespace.
+        try:
+            from _orunex_libs.bmd_knowledge import sync_bmd_knowledge
+
+            threading.Thread(
+                target=sync_bmd_knowledge,
+                name="BMDKnowledgeSync",
+                daemon=True,
+            ).start()
+        except Exception as exc:
+            self._log(f"BMD knowledge sync skipped: {exc}", level="WARN")
         for problem in self.settings.validate():
             self._log(f"Config: {problem}", level="WARN")
         if autostart_simplex and self.settings.simplex_enabled:
@@ -449,7 +462,17 @@ class AgentBrain:
                 else {"enabled": False}
             ),
             "paper": self.paper.snapshot(),
+            "bmd": self._bmd_status(),
         }
+
+    def _bmd_status(self) -> dict[str, Any]:
+        """Best-effort BMD engine diagnostics for ``--check`` and the UI."""
+        try:
+            from _orunex_libs.bmd_expert import status as bmd_status
+
+            return bmd_status()
+        except Exception as exc:
+            return {"available": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def shutdown(self) -> None:
         self.stop_simplex()

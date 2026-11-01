@@ -26,6 +26,13 @@ from core.events import TRADINGVIEW, EventBus
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _CRYPTO_QUOTES = ("USDT", "USDC", "USD", "BTC", "ETH", "EUR")
+_SYMBOL_TITLE_RE = re.compile(r"\b([A-Z]{2,12}(?:USDT|USDC|USD|BTC|ETH))\b")
+
+
+def _symbol_in_title(title: str) -> str:
+    """Return the crypto symbol shown in a TradingView window title."""
+    match = _SYMBOL_TITLE_RE.search(str(title or "").upper())
+    return match.group(1) if match else ""
 
 
 def normalize_symbol(symbol: str) -> tuple[str, str]:
@@ -335,6 +342,51 @@ class TradingViewBridge:
         if not self._launch_unlocked(timeout=timeout):
             return {**self.status().to_dict(), "symbol": tv_symbol,
                     "opened": False, "elapsed_s": round(time.monotonic() - started, 2)}
+        # Electron restores its workspace asynchronously.  Sending the chart
+        # URL while the window still says "TradingView" made the link get
+        # ignored, leaving the home screen ("New tab") for Muse to analyse.
+        ready_deadline = time.monotonic() + 6.0
+        while time.monotonic() < ready_deadline:
+            title = self.window_title().strip()
+            if title and (
+                title.lower() == "new tab" or _symbol_in_title(title)
+            ):
+                break
+            time.sleep(0.35)
+
+        # Reuse the chart that is already visible when it matches the
+        # requested symbol.  Sending the URL unconditionally makes Electron
+        # open a duplicate tab; a fresh tab restores the "Account Manager"
+        # panel instead of the user's Paper Trading panel, which would make
+        # the paper-only GUI guard abort.
+        visible_now = _symbol_in_title(self.window_title())
+        if visible_now and visible_now.upper() == display.upper():
+            self.focus()
+            with self._lock:
+                self._last_symbol = tv_symbol
+                self._last_opened_at = time.time()
+                self._last_error = ""
+            self._log(
+                f"Chart already open: {tv_symbol} ({timeframe}); reusing the "
+                "visible TradingView tab",
+                next_stage="Meta API",
+            )
+            self._status_at = 0.0
+            status = {
+                **self.status().to_dict(),
+                "symbol": tv_symbol,
+                "url": self.chart_url(symbol, timeframe),
+                "opened": True,
+                "title_confirmed": True,
+                "visible_symbol": visible_now,
+                "reused": True,
+                "elapsed_s": round(time.monotonic() - started, 2),
+            }
+            status["window_title"] = (
+                self.window_title() or status.get("window_title", "")
+            )
+            return status
+
         url = self.chart_url(symbol, timeframe)
         try:
             exe = self.find_exe()
@@ -366,39 +418,66 @@ class TradingViewBridge:
             self._log(self._last_error, level="WARN")
             return {**self.status().to_dict(), "symbol": tv_symbol,
                     "opened": False, "elapsed_s": round(time.monotonic() - started, 2)}
-        # Settle briefly, then capture: waiting for the window title can
-        # burn 25 s in multi-tab layouts whose title names another tab, and
-        # the capture + chart header is the real confirmation anyway.
-        deadline = time.monotonic() + 6.0
+        # Wait for *any* chart title, not only the requested symbol:
+        # TradingView may restore a different chart, and the task adopts the
+        # visible symbol when the user did not name one.  The old 6 s window
+        # returned while the window still said "New tab", so the screenshot
+        # contained the TradingView home screen and Muse rejected the order.
+        deadline = time.monotonic() + 15.0
         opened = False
+        visible_title = ""
+        visible_symbol = ""
         while time.monotonic() < deadline:
-            title = self.window_title()
-            if display in title.upper() or tv_symbol.split(":")[-1] in title.upper():
+            visible_title = self.window_title()
+            visible_symbol = _symbol_in_title(visible_title)
+            if visible_symbol:
                 opened = True
                 break
-            time.sleep(0.35)
+            time.sleep(0.4)
+        requested_in_title = bool(
+            visible_title
+            and (
+                display.upper() in visible_title.upper()
+                or tv_symbol.split(":")[-1].upper() in visible_title.upper()
+            )
+        )
         self.focus()
         with self._lock:
             self._last_symbol = tv_symbol
             self._last_opened_at = time.time()
             if not opened:
                 self._last_error = "Chart link sent; symbol title not confirmed yet."
+            elif not requested_in_title:
+                self._last_error = (
+                    f"Requested {tv_symbol}; visible chart is {visible_symbol}."
+                )
         self._log(
             f"Chart open requested: {tv_symbol} ({timeframe})"
-            + ("" if opened else " — still loading"),
+            + ("" if opened else " — still loading")
+            + (
+                f"; visible chart {visible_symbol}"
+                if opened and not requested_in_title
+                else ""
+            ),
             next_stage="Meta API",
         )
         self._status_at = 0.0
         running = self.is_running()
-        return {
+        status = {
             **self.status().to_dict(), "symbol": tv_symbol, "url": url,
             # The link was delivered to a running TradingView window.  The
             # window title is only a weak confirmation in multi-tab layouts
             # (it can show another tab's symbol), so the chart capture +
             # Muse's reading of the chart header is the real verification.
-            "opened": bool(opened or running), "title_confirmed": opened,
+            "opened": bool(opened or running),
+            "title_confirmed": requested_in_title,
+            "visible_symbol": visible_symbol,
             "elapsed_s": round(time.monotonic() - started, 2),
         }
+        # The task uses this title to adopt the visible chart when the user
+        # did not name a symbol.  Do not let the status cache hide it.
+        status["window_title"] = visible_title or status.get("window_title", "")
+        return status
 
     def _capture_print_window(self, hwnd: int):
         """Capture a window's own pixels even if another app covers it."""
@@ -507,15 +586,19 @@ class TradingViewBridge:
                     )
             # Muse should read market evidence, not the watchlist or the
             # TradingView paper-trading panel (which may show a different
-            # account).  Crop to the chart pane before scaling.
+            # account).  Crop to the chart pane before scaling.  The pane
+            # spans roughly the left 56% and the top 63% of the window; the
+            # previous 55% cut off the current price line and the newest
+            # candles, which made Muse's directional confidence artificially
+            # low.
             width, height = image.size
             if width >= 800 and height >= 500:
                 image = image.crop(
                     (
                         int(width * 0.04),
                         int(height * 0.10),
-                        int(width * 0.80),
-                        int(height * 0.55),
+                        int(width * 0.56),
+                        int(height * 0.63),
                     )
                 )
             if image.width > 1600:
@@ -567,11 +650,14 @@ class TradingViewBridge:
                 if settle_s > 0:
                     time.sleep(float(settle_s))
                 # Candles/indicators paint after the window title does; a
-                # half-loaded frame made Muse report zero confidence.
-                deadline = time.monotonic() + 15.0
+                # half-loaded frame made Muse report zero confidence.  Require
+                # both a symbol title and a painted image so the home screen
+                # ("New tab") is never sent to Muse as if it were a chart.
+                deadline = time.monotonic() + 10.0
                 while True:
+                    title = self.window_title()
                     image = self._capture_chart_unlocked(symbol)
-                    if self._image_looks_ready(image):
+                    if _symbol_in_title(title) and self._image_looks_ready(image):
                         break
                     if time.monotonic() >= deadline:
                         self._log(
@@ -579,7 +665,7 @@ class TradingViewBridge:
                             level="WARN", next_stage="Meta API",
                         )
                         break
-                    time.sleep(1.5)
+                    time.sleep(1.0)
             return status, image
 
     def warmup(self) -> dict[str, Any]:

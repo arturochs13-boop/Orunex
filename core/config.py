@@ -191,6 +191,16 @@ class Settings:
     tradingview_capture_chart: bool = field(
         default_factory=lambda: _env_bool("TRADINGVIEW_CAPTURE_CHART", True)
     )
+    # Recursive cursor/keyboard executor for the native paper ticket.
+    tradingview_gui_enabled: bool = field(
+        default_factory=lambda: _env_bool("TRADINGVIEW_GUI_ENABLED", True)
+    )
+    tradingview_gui_max_steps: int = field(
+        default_factory=lambda: _env_int("TRADINGVIEW_GUI_MAX_STEPS", 26)
+    )
+    tradingview_gui_timeout_s: float = field(
+        default_factory=lambda: _env_float("TRADINGVIEW_GUI_TIMEOUT_S", 420.0)
+    )
 
     # --- Paper trading (NEVER real money) -------------------------------------
     paper_trading_only: bool = True  # hard invariant, not configurable off
@@ -205,11 +215,19 @@ class Settings:
     min_trade_confidence: float = field(
         default_factory=lambda: _env_float("MIN_TRADE_CONFIDENCE", 0.70)
     )
-    # Explicit user orders ("ejecuta", "abre una orden paper") may use a
-    # slightly lower bar than autonomous analyses, but Muse must still return
-    # BUY/SELL with coherent stop-loss and take-profit.  Paper only.
+    # Explicit user orders ("ejecuta", "haz una entrada", "abre una orden
+    # paper") are user-authorized paper entries, so they use a lower bar than
+    # autonomous analyses.  0.50 keeps the deterministic risk gate in charge
+    # while allowing a decisive 0.55 setup; Muse must still return BUY/SELL
+    # with coherent stop-loss and take-profit.  Paper only.
     explicit_trade_min_confidence: float = field(
-        default_factory=lambda: _env_float("EXPLICIT_TRADE_MIN_CONFIDENCE", 0.60)
+        default_factory=lambda: _env_float("EXPLICIT_TRADE_MIN_CONFIDENCE", 0.50)
+    )
+    # An explicit order must not end as HOLD just because Muse hesitated.
+    # Muse is re-asked with a stricter prompt up to this many times; the
+    # deterministic risk gate still validates every returned BUY/SELL.
+    explicit_trade_decision_attempts: int = field(
+        default_factory=lambda: _env_int("EXPLICIT_TRADE_DECISION_ATTEMPTS", 3)
     )
     paper_duplicate_window_s: int = field(
         default_factory=lambda: _env_int("PAPER_DUPLICATE_WINDOW_S", 900)
@@ -245,8 +263,14 @@ class Settings:
             problems.append("MIN_TRADE_CONFIDENCE must be in (0, 1].")
         if not 0 < self.explicit_trade_min_confidence <= 1:
             problems.append("EXPLICIT_TRADE_MIN_CONFIDENCE must be in (0, 1].")
+        if self.explicit_trade_decision_attempts < 1:
+            problems.append("EXPLICIT_TRADE_DECISION_ATTEMPTS must be at least 1.")
         if self.tradingview_launch_timeout_s <= 0:
             problems.append("TRADINGVIEW_LAUNCH_TIMEOUT_S must be positive.")
+        if self.tradingview_gui_max_steps < 1:
+            problems.append("TRADINGVIEW_GUI_MAX_STEPS must be at least 1.")
+        if self.tradingview_gui_timeout_s <= 0:
+            problems.append("TRADINGVIEW_GUI_TIMEOUT_S must be positive.")
         if self.remote_duplicate_window_s < 0:
             problems.append("REMOTE_DUPLICATE_WINDOW_S must be >= 0.")
         if self.paper_duplicate_window_s < 0:
