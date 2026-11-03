@@ -44,7 +44,7 @@ EXTENSIONS = {
 }
 
 _KIND_WORDS = (
-    ("pptx", ("powerpoint", "power point", "pptx", "ppt", "presentacion", "presentación", "slides", "diapositivas")),
+    ("pptx", ("powerpoint", "power point", "pptx", "ppt", "presentacion", "presentación", "presentation", "slides", "diapositivas")),
     ("xlsx", ("excel", "xlsx", "xls", "hoja de calculo", "hoja de cálculo", "spreadsheet")),
     ("docx", ("word", "docx", "documento de word", "documento word")),
     ("pdf", ("pdf",)),

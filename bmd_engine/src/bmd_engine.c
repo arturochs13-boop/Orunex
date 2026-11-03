@@ -458,7 +458,9 @@ bmd_status_t bmd_serialize(const bmd_document_t* doc, char** out_string, size_t*
     } while (0)
 
     APPEND("---\n");
-    APPEND("block_id: \"%s\"\n",         doc->header.block_id);
+    if (doc->header.block_id[0] != '\0') {
+        APPEND("block_id: \"%s\"\n",         doc->header.block_id);
+    }
     APPEND("previous_hash: \"%s\"\n",    doc->header.previous_hash);
     APPEND("current_hash: \"%s\"\n",     doc->header.current_hash);
     APPEND("mode: \"%s\"\n",             bmd_mode_string(doc->header.mode));

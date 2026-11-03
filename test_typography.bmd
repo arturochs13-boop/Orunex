@@ -1,0 +1,18 @@
+﻿---
+bmd_version: 2.1
+document_type: agreement
+mode: draft
+jurisdiction: International
+max_signatures: 2
+---
+
+<title>Master Service Agreement</title>
+<subtitle>Between Alpha Corp and Beta LLC - Fiscal Year 2026</subtitle>
+<bmd:rule>
+<heading>1. Purpose and Standard</heading>
+<body>This is a standard body paragraph. Under the legal typography standard, the Title must be substantially larger than normal body text to guarantee visual distinction.</body>
+<body>The Title is styled at 28px (21pt) Extra Bold Uppercase, while the body text is 14px (10.5pt) Justified.</body>
+<heading>2. Execution Buttons</heading>
+<bmd:sign_button>
+<bmd:cosign_button>
+<bmd:seal>

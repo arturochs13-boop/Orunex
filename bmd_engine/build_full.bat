@@ -38,6 +38,8 @@ copy /Y bmd_engine\bin\bmd_cli.exe bmd_engine\bin\bmd.exe >nul
 copy /Y bmd_engine\bin\bmd_cli.exe bmd.exe >nul
 copy /Y bmd_engine\bin\bmd.exe "%LOCALAPPDATA%\Microsoft\WindowsApps\bmd.exe" >nul
 copy /Y bmd_engine\bin\bmd_engine.dll "%LOCALAPPDATA%\Microsoft\WindowsApps\bmd_engine.dll" >nul
+if not exist "%USERPROFILE%\.bmd\python" mkdir "%USERPROFILE%\.bmd\python"
+copy /Y bmd_engine\python\*.py "%USERPROFILE%\.bmd\python\" >nul
 echo [OK] bmd_cli.exe y bmd.exe compilados e instalados en PATH correctamente.
 
 echo [4/4] Ejecutando tests nativos C11...

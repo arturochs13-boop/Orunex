@@ -22,6 +22,9 @@ def parse_bmd_file(filepath: str):
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
         content = f.read()
 
+    # Strip UTF-8 BOM if PowerShell Set-Content wrote one
+    content = content.lstrip('\ufeff')
+
     match = re.match(r"^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$", content)
     meta = {}
     body = content
@@ -152,15 +155,54 @@ def render_formal_markdown(body: str, meta: dict) -> str:
 
     def sub_seal(m):
         curr_hash = meta.get("current_hash", "")
-        block_id  = meta.get("block_id", "BLOCK")
+        block_id  = meta.get("block_id", "")
+        meta_id_str = f"BLOCK ID: {block_id} | " if block_id else ""
         jurisdiction = meta.get("jurisdiction", "International")
         return f"""
         <div class="bmd-custody-seal">
             <div class="bmd-seal-header">BLOCKCHAIN MARKDOWN IMMUTABILITY SEAL</div>
             <div class="bmd-seal-hash font-mono">SHA-512: {curr_hash}</div>
-            <div class="bmd-seal-meta">BLOCK ID: {block_id} | CUSTODY PROTOCOL v2.1 | JURISDICTION: {jurisdiction}</div>
+            <div class="bmd-seal-meta">{meta_id_str}CUSTODY PROTOCOL v2.1 | JURISDICTION: {jurisdiction}</div>
         </div>
         """
+
+    def sub_sign_button(m):
+        em_sig  = meta.get("signature_layer_2", "")
+        em_pub  = meta.get("public_key", "")
+        if em_sig:
+            return f"""
+            <div class="bmd-clause" style="border-left: 3px solid #10b981; background: #f0fdf4; padding: 12px 16px; margin: 12px 0;">
+                <div style="font-size:11px; font-weight:700; color:#047857; text-transform:uppercase;">Emitter Signature Button</div>
+                <div style="font-size:13px; font-weight:600; color:#065f46; margin-top:2px;">DIGITALLY SEALED (Ed25519 Verified)</div>
+                <div style="font-family:monospace; font-size:10px; color:#475569; margin-top:4px; word-break:break-all;">Pubkey: {em_pub}</div>
+            </div>
+            """
+        else:
+            return """
+            <div class="bmd-clause" style="border-left: 3px solid #f59e0b; background: #fffbeb; padding: 12px 16px; margin: 12px 0;">
+                <div style="font-size:11px; font-weight:700; color:#b45309; text-transform:uppercase;">Emitter Signature Button</div>
+                <div style="font-size:13px; font-weight:600; color:#92400e; margin-top:2px;">PENDING SIGNATURE (Run 'bmd sign' to authenticate)</div>
+            </div>
+            """
+
+    def sub_cosign_button(m):
+        rec_sig = meta.get("receiver_signature", "")
+        rec_pub = meta.get("receiver_public_key", "")
+        if rec_sig:
+            return f"""
+            <div class="bmd-clause" style="border-left: 3px solid #10b981; background: #f0fdf4; padding: 12px 16px; margin: 12px 0;">
+                <div style="font-size:11px; font-weight:700; color:#047857; text-transform:uppercase;">Receiver Co-Signature Button</div>
+                <div style="font-size:13px; font-weight:600; color:#065f46; margin-top:2px;">CO-SIGNED &amp; RATIFIED (Ed25519 Ratified)</div>
+                <div style="font-family:monospace; font-size:10px; color:#475569; margin-top:4px; word-break:break-all;">Pubkey: {rec_pub}</div>
+            </div>
+            """
+        else:
+            return """
+            <div class="bmd-clause" style="border-left: 3px solid #f59e0b; background: #fffbeb; padding: 12px 16px; margin: 12px 0;">
+                <div style="font-size:11px; font-weight:700; color:#b45309; text-transform:uppercase;">Receiver Co-Signature Button</div>
+                <div style="font-size:13px; font-weight:600; color:#92400e; margin-top:2px;">AWAITING COUNTERPARTY CO-SIGNATURE (Run 'bmd cosign' to ratify)</div>
+            </div>
+            """
 
     def sub_clause(m):
         num   = m.group(1)
@@ -168,13 +210,18 @@ def render_formal_markdown(body: str, meta: dict) -> str:
         return f'<div class="bmd-clause"><span class="bmd-clause-num">Clause {num}</span><span class="bmd-clause-title">{title}</span></div>'
 
     processed = body
-    processed = re.sub(r"<!--\s*bmd:rule\s+double\s*-->", sub_rule_double, processed)
-    processed = re.sub(r"<!--\s*bmd:rule\s+single\s*-->", sub_rule_single, processed)
-    processed = re.sub(r"<!--\s*bmd:parties[^>]*-->", sub_parties, processed)
-    processed = re.sub(r"<!--\s*bmd:signatures?\s*-->", sub_signatures, processed)
-    processed = re.sub(r"<!--\s*bmd:seal\s*-->", sub_seal, processed)
+    processed = re.sub(r"<!--\s*bmd:sign_button\s*-->|<bmd:sign_button>", sub_sign_button, processed)
+    processed = re.sub(r"<!--\s*bmd:cosign_button\s*-->|<bmd:cosign_button>", sub_cosign_button, processed)
+    # Support both XML-style tags AND HTML comment style for all directives
+    processed = re.sub(r"<!--\s*bmd:rule\s+double\s*-->|<bmd:rule\s+double\s*/?>|<bmd:rule\s*/?>", sub_rule_double, processed)
+    processed = re.sub(r"<!--\s*bmd:rule\s+single\s*-->|<bmd:rule\s+single\s*/?>", sub_rule_single, processed)
+    processed = re.sub(r"<!--\s*bmd:parties[^>]*-->|<bmd:parties\s*/?>", sub_parties, processed)
+    processed = re.sub(r"<!--\s*bmd:signatures?\s*-->|<bmd:signatures?\s*/?>", sub_signatures, processed)
+    processed = re.sub(r"<!--\s*bmd:seal\s*-->|<bmd:seal\s*/?>", sub_seal, processed)
     processed = re.sub(r"<!--\s*bmd:clause\s+(\d+)\s+(.*?)\s*-->", sub_clause, processed)
-    processed = re.sub(r"<!--\s*bmd:[^>]*-->\r?\n?", "", processed)  # clean remaining tags
+    # Strip any remaining unrecognised bmd directives (both styles)
+    processed = re.sub(r"<!--\s*bmd:[^>]*-->\r?\n?", "", processed)
+    processed = re.sub(r"<bmd:[^>]*/?\s*>\r?\n?", "", processed)  # leftover XML-style tags
 
     lines = processed.splitlines()
     html_out = []
@@ -212,17 +259,50 @@ def render_formal_markdown(body: str, meta: dict) -> str:
             html_out.append("</tbody></table></div>")
             in_table = False
 
+        # Check formal legal typography tags
+        if "<title>" in s:
+            if in_ul: html_out.append("</ul>"); in_ul = False
+            m = re.search(r"<title>(.*?)</title>", s, re.IGNORECASE)
+            t_text = m.group(1).strip() if m else re.sub(r"</?title>", "", s).strip()
+            html_out.append(f'<h1 class="bmd-title">{t_text}</h1>')
+            continue
+
+        if "<subtitle>" in s:
+            if in_ul: html_out.append("</ul>"); in_ul = False
+            m = re.search(r"<subtitle>(.*?)</subtitle>", s, re.IGNORECASE)
+            sub_text = m.group(1).strip() if m else re.sub(r"</?subtitle>", "", s).strip()
+            html_out.append(f'<div class="bmd-subtitle">{sub_text}</div>')
+            continue
+
+        if "<heading>" in s:
+            if in_ul: html_out.append("</ul>"); in_ul = False
+            m = re.search(r"<heading>(.*?)</heading>", s, re.IGNORECASE)
+            h_text = m.group(1).strip() if m else re.sub(r"</?heading>", "", s).strip()
+            html_out.append(f'<h2 class="bmd-heading">{h_text}</h2>')
+            continue
+
+        if "<body>" in s or "</body>" in s:
+            if in_ul: html_out.append("</ul>"); in_ul = False
+            b_text = re.sub(r"</?body>", "", s).strip()
+            if b_text:
+                p_text = b_text
+                p_text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", p_text)
+                p_text = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", p_text)
+                p_text = re.sub(r"`([^`]+)`", r'<code class="bmd-inline-code font-mono">\1</code>', p_text)
+                html_out.append(f'<p class="bmd-p">{p_text}</p>')
+            continue
+
         if s.startswith("# "):
             if in_ul: html_out.append("</ul>"); in_ul = False
-            html_out.append(f'<h1 class="bmd-h1">{s[2:]}</h1>')
+            html_out.append(f'<h1 class="bmd-title">{s[2:].strip()}</h1>')
             continue
         if s.startswith("## "):
             if in_ul: html_out.append("</ul>"); in_ul = False
-            html_out.append(f'<h2 class="bmd-h2">{s[3:]}</h2>')
+            html_out.append(f'<div class="bmd-subtitle">{s[3:].strip()}</div>')
             continue
         if s.startswith("### "):
             if in_ul: html_out.append("</ul>"); in_ul = False
-            html_out.append(f'<h3 class="bmd-h3">{s[4:]}</h3>')
+            html_out.append(f'<h2 class="bmd-heading">{s[4:].strip()}</h2>')
             continue
 
         if s == "---" or s == "***":
@@ -264,8 +344,9 @@ def render_formal_markdown(body: str, meta: dict) -> str:
 
 def generate_standalone_html(bmd_filepath: str, output_filepath: str = None) -> str:
     meta, body, raw_content = parse_bmd_file(bmd_filepath)
-    block_id     = meta.get("block_id", "0xBLOCK")
-    doc_type     = (meta.get("document_type") or "Executive Agreement").upper()
+    block_id     = meta.get("block_id", "")
+    doc_type     = (meta.get("document_type") or "Executive Document").upper()
+    doc_title    = block_id if block_id else f"IMMUTABLE {doc_type}"
     mode         = meta.get("mode", "transfer").upper()
     curr_hash    = meta.get("current_hash", "")
     jurisdiction = meta.get("jurisdiction", "Standard Legal Jurisdiction")
@@ -298,7 +379,7 @@ def generate_standalone_html(bmd_filepath: str, output_filepath: str = None) -> 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- ZERO EXTERNAL DEPENDENCIES: No CDN, no Google Fonts, no external JS, fully offline -->
-<title>{block_id} - {doc_type} | Blockchain Markdown Executive Document</title>
+<title>{doc_title} - {doc_type} | Blockchain Markdown Executive Document</title>
 <style>
 /* ============================================================
    BLOCKCHAIN MARKDOWN ZERO-DEPENDENCY EXECUTIVE STYLESHEET
@@ -430,13 +511,43 @@ body {{
   margin-top: 4px;
 }}
 
-/* Typography */
-.bmd-h1 {{ font-size: 24px; font-weight: 700; color: #fff; margin: 28px 0 16px; letter-spacing: -0.02em; }}
-.bmd-h2 {{ font-size: 17px; font-weight: 600; color: #f1f5f9; margin: 28px 0 12px; letter-spacing: -0.01em; border-bottom: 1px solid #1e2638; padding-bottom: 6px; }}
-.bmd-h3 {{ font-size: 14px; font-weight: 600; color: #cbd5e1; margin: 20px 0 8px; }}
-.bmd-p {{ font-size: 13.5px; color: #cbd5e1; margin: 12px 0; line-height: 1.7; text-align: justify; }}
-.bmd-list {{ margin: 12px 0 12px 24px; font-size: 13.5px; color: #cbd5e1; line-height: 1.7; }}
-.bmd-quote {{ border-left: 3px solid var(--accent-blue); padding: 8px 16px; margin: 16px 0; background: #0c121d; color: #94a3b8; font-style: italic; font-size: 13px; }}
+/* Executive Legal Typography Hierarchy */
+.bmd-title {{
+  font-size: 28px;
+  font-weight: 800;
+  color: #ffffff;
+  text-align: center;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 36px 0 10px;
+  line-height: 1.25;
+}}
+.bmd-subtitle {{
+  font-size: 15px;
+  font-weight: 500;
+  color: #94a3b8;
+  text-align: center;
+  letter-spacing: 0.02em;
+  margin: 0 0 26px;
+  line-height: 1.5;
+}}
+.bmd-heading {{
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin: 30px 0 12px;
+  border-bottom: 1px solid #1e2638;
+  padding-bottom: 6px;
+  line-height: 1.35;
+}}
+.bmd-h1 {{ font-size: 26px; font-weight: 800; color: #fff; margin: 28px 0 14px; letter-spacing: 0.02em; text-transform: uppercase; }}
+.bmd-h2 {{ font-size: 18px; font-weight: 700; color: #f1f5f9; margin: 24px 0 12px; letter-spacing: 0.01em; border-bottom: 1px solid #1e2638; padding-bottom: 6px; }}
+.bmd-h3 {{ font-size: 15px; font-weight: 600; color: #cbd5e1; margin: 20px 0 8px; }}
+.bmd-p {{ font-size: 14px; color: #cbd5e1; margin: 14px 0; line-height: 1.75; text-align: justify; }}
+.bmd-list {{ margin: 12px 0 12px 24px; font-size: 14px; color: #cbd5e1; line-height: 1.75; }}
+.bmd-quote {{ border-left: 3px solid var(--accent-blue); padding: 8px 16px; margin: 16px 0; background: #0c121d; color: #94a3b8; font-style: italic; font-size: 13.5px; }}
 .bmd-inline-code {{ background: #141a29; color: #93c5fd; padding: 2px 6px; border-radius: 4px; font-size: 12px; border: 1px solid #1e293b; }}
 
 /* Formal Directives */
@@ -490,8 +601,11 @@ tr:hover td {{ background: #0f1523; }}
   body {{ background: #fff !important; color: #000 !important; padding: 0 !important; }}
   .bmd-topbar {{ display: none !important; }}
   .bmd-sheet {{ background: #fff !important; color: #000 !important; border: none !important; box-shadow: none !important; padding: 0 !important; max-width: 100% !important; }}
+  .bmd-title {{ font-size: 22pt !important; font-weight: 800 !important; color: #000 !important; text-align: center !important; text-transform: uppercase !important; margin: 24pt 0 8pt !important; }}
+  .bmd-subtitle {{ font-size: 12pt !important; font-weight: 500 !important; color: #475569 !important; text-align: center !important; margin: 0 0 18pt !important; }}
+  .bmd-heading {{ font-size: 14pt !important; font-weight: 700 !important; color: #000 !important; text-transform: uppercase !important; margin: 18pt 0 8pt !important; border-bottom: 1pt solid #ccc !important; }}
   .bmd-h1, .bmd-h2, .bmd-doc-title {{ color: #000 !important; }}
-  .bmd-p, .bmd-list, td {{ color: #222 !important; }}
+  .bmd-p, .bmd-list, td {{ font-size: 11pt !important; color: #111 !important; line-height: 1.6 !important; text-align: justify !important; }}
   th {{ background: #f1f5f9 !important; color: #000 !important; }}
   .bmd-party-card, .bmd-sig-box, .bmd-custody-seal {{ background: #fafafa !important; border: 1px solid #ccc !important; color: #000 !important; }}
 }}
@@ -516,7 +630,7 @@ tr:hover td {{ background: #0f1523; }}
     <div class="bmd-letterhead">
       <div>
         <div class="bmd-doc-type font-mono">{doc_type}</div>
-        <div class="bmd-doc-title">{block_id}</div>
+        <div class="bmd-doc-title">{doc_title}</div>
       </div>
       <div class="bmd-letterhead-meta font-mono">
         <div>Jurisdiction: {jurisdiction}</div>

@@ -33,16 +33,37 @@ except ImportError:
     NACL_AVAILABLE = False
 
 
-def derive_bundle_key(privkey_seed: bytes, block_id: str, timestamp: int) -> bytes:
+def get_default_seed() -> bytes:
+    """Load the persistent device key seed from ~/.bmd/emitter_device.key or environment."""
+    env_seed = os.environ.get("BMD_DEVICE_SEED")
+    if env_seed and len(env_seed) == 64:
+        try:
+            return bytes.fromhex(env_seed)
+        except Exception:
+            pass
+    home = os.environ.get("USERPROFILE") or os.environ.get("HOME") or "."
+    key_path = os.path.join(home, ".bmd", "emitter_device.key")
+    if os.path.exists(key_path):
+        try:
+            with open(key_path, "r", encoding="utf-8") as f:
+                hex_seed = f.read().strip()
+                if len(hex_seed) == 64:
+                    return bytes.fromhex(hex_seed)
+        except Exception:
+            pass
+    return bytes([0x42] * 32)
+
+
+def derive_bundle_key(privkey_seed: bytes, block_id: str = "", timestamp: int = 0) -> bytes:
     """
     Derive a 32-byte encryption key for the property bundle.
-    Uses BLAKE2b(privkey_seed || block_id.encode() || timestamp_bytes).
-    This ensures the bundle can ONLY be decrypted by the emitter with private key.
+    Uses BLAKE2b(privkey_seed || salt).
+    This ensures the bundle can ONLY be decrypted with the authentic emitter private key,
+    while remaining stable even when document compilation updates the timestamp or block_id.
     """
     h = hashlib.blake2b(digest_size=32)
     h.update(privkey_seed)
-    h.update(block_id.encode('utf-8'))
-    h.update(timestamp.to_bytes(8, 'little'))
+    h.update(b"BMD_IP_BUNDLE_SECRET_v2.1")
     return h.digest()
 
 
@@ -320,7 +341,7 @@ if __name__ == "__main__":
             print(f"[-] Error: Target .bmd file does not exist: {args.bmd}", file=sys.stderr)
             sys.exit(1)
 
-        seed = bytes.fromhex(args.seed) if args.seed else bytes([0x42] * 32)
+        seed = bytes.fromhex(args.seed) if args.seed else get_default_seed()
         with open(args.bmd, "r", encoding="utf-8") as f:
             content = f.read()
 
@@ -406,7 +427,7 @@ if __name__ == "__main__":
             print("[-] Error: No property_bundle found in file", file=sys.stderr)
             sys.exit(1)
 
-        seed = bytes.fromhex(args.seed) if args.seed else bytes([0x42] * 32)
+        seed = bytes.fromhex(args.seed) if args.seed else get_default_seed()
         block_id = meta.get("block_id", "0xBLOCK")
         ts = int(meta.get("timestamp", 0))
 

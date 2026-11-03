@@ -12,6 +12,9 @@
 #include <time.h>
 
 char* getenv(const char* name);
+#ifdef _WIN32
+char* _fullpath(char* absPath, const char* relPath, size_t maxLength);
+#endif
 
 #ifdef _WIN32
 typedef void* HANDLE;
@@ -23,6 +26,8 @@ __declspec(dllimport) HANDLE __stdcall GetStdHandle(DWORD nStdHandle);
 __declspec(dllimport) BOOL __stdcall GetConsoleMode(HANDLE hConsoleHandle, DWORD* lpMode);
 __declspec(dllimport) BOOL __stdcall SetConsoleMode(HANDLE hConsoleHandle, DWORD dwMode);
 __declspec(dllimport) BOOL __stdcall SetConsoleOutputCP(unsigned int wCodePageID);
+__declspec(dllimport) void __stdcall Sleep(unsigned long dwMilliseconds);
+__declspec(dllimport) BOOL __stdcall CreateDirectoryA(const char* lpPathName, void* lpSecurityAttributes);
 
 static void enable_ansi_terminal(void) {
     SetConsoleOutputCP(65001);
@@ -35,8 +40,92 @@ static void enable_ansi_terminal(void) {
     }
 }
 #else
+#include <unistd.h>
+#define Sleep(ms) usleep((ms) * 1000)
+#include <sys/stat.h>
 static void enable_ansi_terminal(void) { }
 #endif
+
+static void render_retro_purple_loading_bar(const char* label) {
+    enable_ansi_terminal();
+    printf("\n  \033[1;38;2;220;120;255m[*] %s\033[0m\n  ", label ? label : "Cryptographically Sealing Block...");
+
+    const int bar_width = 44;
+    for (int step = 1; step <= bar_width; ++step) {
+        float t = (float)step / (float)bar_width;
+        int r = (int)(110 + t * (255 - 110));
+        int g = (int)(0   + t * (85  - 0));
+        int b = (int)(160 + t * (255 - 160));
+
+        printf("\033[38;2;%d;%d;%dm█\033[0m", r, g, b);
+        fflush(stdout);
+#ifdef _WIN32
+        Sleep(22);
+#endif
+    }
+    printf(" \033[1;38;2;255;160;255m[100%% IMMUTABLE]\033[0m\n\n");
+    fflush(stdout);
+}
+
+static void trim_line(char* s);
+
+static void get_device_identity_seed(uint8_t out_seed[32], bool is_receiver) {
+    const char* env_var = is_receiver ? "BMD_RECEIVER_SEED" : "BMD_DEVICE_SEED";
+    const char* env_seed = getenv(env_var);
+    if (env_seed && strlen(env_seed) == 64) {
+        if (bmd_hex_to_bin(env_seed, out_seed, 32)) return;
+    }
+
+    /* Check persistent file in ~/.bmd/ */
+    const char* home = getenv("USERPROFILE");
+    if (!home || home[0] == '\0') home = getenv("HOME");
+    if (!home || home[0] == '\0') home = ".";
+
+    char bmd_dir[1024];
+    char key_file[1024];
+    snprintf(bmd_dir, sizeof(bmd_dir), "%s\\.bmd", home);
+    snprintf(key_file, sizeof(key_file), "%s\\.bmd\\%s_device.key", home, is_receiver ? "receiver" : "emitter");
+
+#ifdef _WIN32
+    CreateDirectoryA(bmd_dir, NULL);
+#else
+    mkdir(bmd_dir, 0700);
+#endif
+
+    FILE* f = fopen(key_file, "r");
+    if (f) {
+        char hex_buf[128] = {0};
+        if (fgets(hex_buf, sizeof(hex_buf), f)) {
+            trim_line(hex_buf);
+            if (strlen(hex_buf) == 64 && bmd_hex_to_bin(hex_buf, out_seed, 32)) {
+                fclose(f);
+                return;
+            }
+        }
+        fclose(f);
+    }
+
+    /* Deterministic derivation from hardware/device fingerprint */
+    char fp[1024];
+    const char* comp = getenv("COMPUTERNAME");
+    const char* user = getenv("USERNAME");
+    const char* arch = getenv("PROCESSOR_ARCHITECTURE");
+    const char* role_tag = is_receiver ? "BMD_RECEIVER_DEVICE_SALT_v2.1" : "BMD_EMITTER_DEVICE_SALT_v2.1";
+    snprintf(fp, sizeof(fp), "%s|%s|%s|%s", comp ? comp : "BMD_NODE", user ? user : "ROOT", arch ? arch : "X64", role_tag);
+
+    char sha_hex[129];
+    bmd_sha512_hex((const uint8_t*)fp, strlen(fp), sha_hex);
+    bmd_hex_to_bin(sha_hex, out_seed, 32);
+
+    /* Persist for consistency across sessions */
+    FILE* wf = fopen(key_file, "w");
+    if (wf) {
+        char seed_hex[65];
+        bmd_bin_to_hex(out_seed, 32, seed_hex);
+        fprintf(wf, "%s\n", seed_hex);
+        fclose(wf);
+    }
+}
 
 static void print_banner(void) {
     enable_ansi_terminal();
@@ -85,16 +174,16 @@ static void print_help(void) {
     printf("DRAFTING & REDACT STUDIO:\n");
     printf("  bmd redact [file.bmd]                 Open terminal editor (create or edit draft)\n\n");
     printf("SIGNING & IMMUTABILITY:\n");
-    printf("  bmd sign <file.bmd> <seed_hex>        Compile: auto SHA-512 hash + Ed25519 sign + freeze\n");
-    printf("  bmd cosign <file.bmd> <seed_hex>      Receiver co-signs (only if max_signatures >= 2)\n");
-    printf("  bmd genkey                            Generate new Ed25519 keypair (seed + pubkey)\n");
+    printf("  bmd sign <file.bmd>                   Sign as Emitter in DRAFT mode (auto device key & SHA-512)\n");
+    printf("  bmd compile <file.bmd>                Compile, freeze to immutable TRANSFER mode & seal\n");
+    printf("  bmd cosign <file.bmd>                 Receiver co-signs (auto device key, if max_signatures >= 2)\n");
     printf("  bmd lock <file.bmd>                   Apply OS read-only attribute to file\n\n");
     printf("LEDGER AUDIT:\n");
     printf("  bmd audit <b1.bmd> [b2.bmd ...]       Audit cryptographic chain of custody\n\n");
-    printf("EXPORTS & INTELLECTUAL PROPERTY:\n");
+    printf("EXPORTS & INTELLIGENT / INTELLECTUAL PROPERTY (IP):\n");
     printf("  bmd render <file.bmd> [out.html]      Export standalone zero-dependency HTML viewer\n");
-    printf("  bmd --inject-property <dir> <bmd>     Inject IP asset bundle with SHA-256 tree\n");
-    printf("  bmd --extract-property <bmd> [--out]  Extract IP assets and verify file hashes\n");
+    printf("  bmd --inject-property <dir> <bmd>     Inject IP (Intelligent Property) code bundle\n");
+    printf("  bmd --extract-property <bmd> [--out]  Extract & decrypt IP assets from block\n");
     printf("  bmd --export-office <file.bmd>        Export structured JSON metadata for integrations\n\n");
     printf("SHELL & UTILITY:\n");
     printf("  bmd                                   Launch interactive BMD shell\n");
@@ -254,26 +343,12 @@ static int lock_file_readonly(const char* filepath) {
     return res;
 }
 
-static int cmd_genkey(void) {
-    uint8_t seed[32];
-    srand((unsigned int)time(NULL));
-    for (int i = 0; i < 32; ++i) {
-        seed[i] = (uint8_t)(rand() ^ (rand() >> 8));
-    }
-
-    uint8_t pk[32];
-    uint8_t sk[64];
-    bmd_ed25519_keypair(pk, sk, seed);
-
-    char seed_hex[65];
-    char pk_hex[65];
-    bmd_bin_to_hex(seed, 32, seed_hex);
-    bmd_bin_to_hex(pk, 32, pk_hex);
-
-    printf("[+] NEW ED25519 CRYPTOGRAPHIC KEYPAIR GENERATED:\n");
-    printf("    PRIVATE SEED (32 bytes): %s\n", seed_hex);
-    printf("    PUBLIC KEY   (32 bytes): %s\n", pk_hex);
-    return 0;
+static void unlock_file_writable(const char* filepath) {
+    char clean[1024];
+    resolve_bmd_path(filepath, clean, sizeof(clean));
+    char cmd[1200];
+    snprintf(cmd, sizeof(cmd), "attrib -R \"%s\" >nul 2>&1", clean);
+    system(cmd);
 }
 
 static int cmd_inspect(const char* filepath) {
@@ -289,7 +364,11 @@ static int cmd_inspect(const char* filepath) {
 
     bmd_status_t v_st = bmd_verify_document(doc);
 
-    printf("\n--- BLOCK METADATA [%s] ---\n", doc->header.block_id);
+    if (doc->header.block_id[0] != '\0') {
+        printf("\n--- BLOCK METADATA [%s] ---\n", doc->header.block_id);
+    } else {
+        printf("\n--- BLOCKCHAIN DOCUMENT METADATA ---\n");
+    }
     printf("  Document Type       : %s\n", doc->header.document_type[0] ? doc->header.document_type : "unspecified");
     printf("  Previous Hash       : %s\n", doc->header.previous_hash);
     printf("  Current Hash        : %s\n", doc->header.current_hash);
@@ -349,11 +428,19 @@ static int cmd_verify(const char* filepath) {
 
     st = bmd_verify_document(doc);
     if (st == BMD_OK) {
-        printf("[+] VERIFICATION SUCCESS: Block '%s' is authentic and unmodified.\n", doc->header.block_id);
+        if (doc->header.block_id[0] != '\0') {
+            printf("[+] VERIFICATION SUCCESS: Block '%s' is authentic and unmodified.\n", doc->header.block_id);
+        } else {
+            printf("[+] VERIFICATION SUCCESS: Document (SHA-512: %.16s...) is authentic and unmodified.\n", doc->header.current_hash);
+        }
         bmd_document_free(doc);
         return 0;
     } else {
-        fprintf(stderr, "[-] SECURITY BREACH in '%s': %s\n", doc->header.block_id, bmd_status_string(st));
+        if (doc->header.block_id[0] != '\0') {
+            fprintf(stderr, "[-] SECURITY BREACH in '%s': %s\n", doc->header.block_id, bmd_status_string(st));
+        } else {
+            fprintf(stderr, "[-] SECURITY BREACH (SHA-512: %.16s...): %s\n", doc->header.current_hash, bmd_status_string(st));
+        }
         bmd_document_free(doc);
         return 2;
     }
@@ -427,6 +514,7 @@ static int cmd_compile_sign(const char* filepath, const char* seed_opt) {
         return 2;
     }
 
+    unlock_file_writable(clean_path);
     st = bmd_save_file(doc, clean_path);
     if (st != BMD_OK) {
         printf("{\"status\":\"error\",\"error\":\"%s\"}\n", bmd_status_string(st));
@@ -446,16 +534,16 @@ static int cmd_compile_sign(const char* filepath, const char* seed_opt) {
 }
 
 static int cmd_sign(const char* filepath, const char* seed_hex) {
-    if (!seed_hex || strlen(seed_hex) != 64) {
-        fprintf(stderr, "[-] Seed must be exactly 64 hexadecimal characters (32 bytes).\n");
-        fprintf(stderr, "    Run 'bmd genkey' to generate a valid seed.\n");
-        return 1;
-    }
     char clean_path[1024];
     resolve_bmd_path(filepath, clean_path, sizeof(clean_path));
 
     uint8_t seed[32];
-    bmd_hex_to_bin(seed_hex, seed, 32);
+    if (seed_hex && strlen(seed_hex) == 64) {
+        bmd_hex_to_bin(seed_hex, seed, 32);
+    } else {
+        /* Automatic device signature */
+        get_device_identity_seed(seed, false);
+    }
 
     bmd_document_t* doc = NULL;
     bmd_status_t st = bmd_parse_file(clean_path, &doc);
@@ -464,14 +552,24 @@ static int cmd_sign(const char* filepath, const char* seed_hex) {
         return 1;
     }
 
-    printf("[+] Computing SHA-512 payload hash...\n");
-    st = bmd_transition_to_transfer(doc, seed);
+    if (doc->header.mode == BMD_MODE_TRANSFER) {
+        fprintf(stderr, "[-] Document is already sealed in TRANSFER mode and cannot be modified.\n");
+        bmd_document_free(doc);
+        return 2;
+    }
+
+    printf("[+] Computing SHA-512 payload hash automatically...\n");
+    printf("[+] Digitally signing as Emitter with authenticated device key...\n");
+    st = bmd_sign_document(doc, seed, BMD_ROLE_EMISOR);
     if (st != BMD_OK) {
         fprintf(stderr, "[-] Sign failed: %s\n", bmd_status_string(st));
         bmd_document_free(doc);
         return 2;
     }
 
+    /* Note: mode remains DRAFT (not frozen yet until compile!) */
+    unlock_file_writable(clean_path);
+    unlock_file_writable(clean_path);
     st = bmd_save_file(doc, clean_path);
     if (st != BMD_OK) {
         fprintf(stderr, "[-] File save failed: %s\n", bmd_status_string(st));
@@ -479,16 +577,79 @@ static int cmd_sign(const char* filepath, const char* seed_hex) {
         return 3;
     }
 
-    printf("[+] DOCUMENT SIGNED AND SEALED:\n");
-    printf("    Block ID   : %s\n", doc->header.block_id);
-    printf("    SHA-512    : %.64s\n", doc->header.current_hash);
-    printf("               : %.64s\n", doc->header.current_hash + 64);
-    printf("    Public Key : %s\n", doc->header.public_key);
-    printf("    Signature  : %.64s...\n", doc->header.signature_layer_2);
-    printf("    Mode       : TRANSFER (IMMUTABLE)\n");
-    printf("    File       : %s\n", clean_path);
+    printf("[+] DOCUMENT SIGNED AS EMITTER (DRAFT MODE):\n");
+    if (doc->header.block_id[0] != '\0') {
+        printf("    Block ID     : %s\n", doc->header.block_id);
+    }
+    printf("    SHA-512 Hash : %.64s\n", doc->header.current_hash);
+    printf("                 : %.64s\n", doc->header.current_hash + 64);
+    printf("    Public Key   : %s\n", doc->header.public_key);
+    printf("    Signature    : %.64s...\n", doc->header.signature_layer_2);
+    printf("    Mode         : DRAFT (Mutable — Ready for 'bmd compile' to seal)\n");
+    printf("    File         : %s\n", clean_path);
+
+    bmd_document_free(doc);
+    return 0;
+}
+
+static int cmd_compile(const char* filepath, const char* seed_hex) {
+    char clean_path[1024];
+    resolve_bmd_path(filepath, clean_path, sizeof(clean_path));
+
+    uint8_t seed[32];
+    if (seed_hex && strlen(seed_hex) == 64) {
+        bmd_hex_to_bin(seed_hex, seed, 32);
+    } else {
+        /* Automatic device signature */
+        get_device_identity_seed(seed, false);
+    }
+
+    bmd_document_t* doc = NULL;
+    bmd_status_t st = bmd_parse_file(clean_path, &doc);
+    if (st != BMD_OK) {
+        fprintf(stderr, "[-] Error loading '%s': %s\n", clean_path, bmd_status_string(st));
+        return 1;
+    }
+
+    if (doc->header.mode == BMD_MODE_TRANSFER) {
+        fprintf(stderr, "[-] Document is already sealed in TRANSFER mode.\n");
+        bmd_document_free(doc);
+        return 0;
+    }
+
+    /* Retro purple pixel loading bar animation! */
+    render_retro_purple_loading_bar("Cryptographically Compiling & Sealing Block...");
+
+    /* Freeze to transfer mode */
+    st = bmd_transition_to_transfer(doc, seed);
+    if (st != BMD_OK) {
+        fprintf(stderr, "[-] Compile failed: %s\n", bmd_status_string(st));
+        bmd_document_free(doc);
+        return 2;
+    }
+
+    unlock_file_writable(clean_path);
+    st = bmd_save_file(doc, clean_path);
+    if (st != BMD_OK) {
+        fprintf(stderr, "[-] File save failed: %s\n", bmd_status_string(st));
+        bmd_document_free(doc);
+        return 3;
+    }
 
     lock_file_readonly(clean_path);
+
+    printf("[+] DOCUMENT COMPILED & FROZEN IN TRANSFER MODE (IMMUTABLE):\n");
+    if (doc->header.block_id[0] != '\0') {
+        printf("    Block ID     : %s\n", doc->header.block_id);
+    }
+    printf("    SHA-512 Hash : %.64s\n", doc->header.current_hash);
+    printf("                 : %.64s\n", doc->header.current_hash + 64);
+    printf("    Public Key   : %s\n", doc->header.public_key);
+    printf("    Signature    : %.64s...\n", doc->header.signature_layer_2);
+    printf("    Mode         : TRANSFER (IMMUTABLE SEALED)\n");
+    printf("    Disk Status  : Read-only locked (tamper-proof)\n");
+    printf("    File         : %s\n", clean_path);
+
     bmd_document_free(doc);
     return 0;
 }
@@ -501,8 +662,8 @@ static int cmd_cosign(const char* filepath, const char* seed_opt) {
     if (seed_opt && strlen(seed_opt) == 64) {
         bmd_hex_to_bin(seed_opt, seed, 32);
     } else {
-        const char* default_rec_seed = "9999999999999999999999999999999999999999999999999999999999999999";
-        bmd_hex_to_bin(default_rec_seed, seed, 32);
+        /* Automatic receiver device signature */
+        get_device_identity_seed(seed, true);
     }
 
     bmd_document_t* doc = NULL;
@@ -512,6 +673,18 @@ static int cmd_cosign(const char* filepath, const char* seed_opt) {
         return 1;
     }
 
+    if (doc->header.signature_layer_2[0] == '\0') {
+        fprintf(stderr, "[-] Document must be signed by Emitter before co-signing.\n");
+        bmd_document_free(doc);
+        return 2;
+    }
+
+    if (doc->header.max_signatures < 2) {
+        fprintf(stderr, "[-] Co-sign rejected: max_signatures = %d (Unilateral document).\n", doc->header.max_signatures);
+        bmd_document_free(doc);
+        return 2;
+    }
+
     st = bmd_cosign_receiver(doc, seed);
     if (st != BMD_OK) {
         printf("{\"status\":\"error\",\"error\":\"%s\"}\n", bmd_status_string(st));
@@ -519,6 +692,7 @@ static int cmd_cosign(const char* filepath, const char* seed_opt) {
         return 2;
     }
 
+    unlock_file_writable(clean_path);
     st = bmd_save_file(doc, clean_path);
     if (st != BMD_OK) {
         printf("{\"status\":\"error\",\"error\":\"%s\"}\n", bmd_status_string(st));
@@ -526,8 +700,7 @@ static int cmd_cosign(const char* filepath, const char* seed_opt) {
         return 3;
     }
 
-    printf("{\"status\":\"ok\",\"action\":\"co_sign\",\"block_id\":\"%s\",\"current_hash\":\"%s\",\"receiver_pubkey\":\"%s\",\"receiver_signature\":\"%s\"}\n",
-           doc->header.block_id,
+    printf("{\"status\":\"ok\",\"action\":\"co_sign\",\"current_hash\":\"%s\",\"receiver_pubkey\":\"%s\",\"receiver_signature\":\"%s\"}\n",
            doc->header.current_hash,
            doc->header.receiver_public_key,
            doc->header.receiver_signature);
@@ -538,7 +711,25 @@ static int cmd_cosign(const char* filepath, const char* seed_opt) {
 }
 
 static void resolve_python_script(const char* script_name, char* out_path, size_t max_len) {
+    const char* home = getenv("USERPROFILE");
+    if (!home || home[0] == '\0') home = getenv("HOME");
+
+    char p_home[1024] = {0};
+    char p_dl[1024]   = {0};
+    char p_apps[1024] = {0};
+    if (home) {
+        snprintf(p_home, sizeof(p_home), "%s\\.bmd\\python\\%s", home, script_name);
+        snprintf(p_dl,   sizeof(p_dl),   "%s\\Downloads\\Project_Orunex\\bmd_engine\\python\\%s", home, script_name);
+    }
+    const char* localapp = getenv("LOCALAPPDATA");
+    if (localapp) {
+        snprintf(p_apps, sizeof(p_apps), "%s\\Microsoft\\WindowsApps\\python\\%s", localapp, script_name);
+    }
+
     const char* candidates[] = {
+        p_home,
+        p_dl,
+        p_apps,
         "bmd_engine\\python\\",
         "python\\",
         "..\\python\\",
@@ -546,14 +737,24 @@ static void resolve_python_script(const char* script_name, char* out_path, size_
         ""
     };
     for (size_t i = 0; i < sizeof(candidates)/sizeof(candidates[0]); ++i) {
-        snprintf(out_path, max_len, "%s%s", candidates[i], script_name);
+        if (!candidates[i] || candidates[i][0] == '\0') continue;
+        if (strchr(candidates[i], '\\') && (candidates[i][1] == ':' || candidates[i][0] == '\\')) {
+            /* Absolute path already */
+            snprintf(out_path, max_len, "%s", candidates[i]);
+        } else {
+            snprintf(out_path, max_len, "%s%s", candidates[i], script_name);
+        }
         FILE* f = fopen(out_path, "r");
         if (f) {
             fclose(f);
             return;
         }
     }
-    snprintf(out_path, max_len, "bmd_engine\\python\\%s", script_name);
+    if (p_home[0]) {
+        snprintf(out_path, max_len, "%s", p_home);
+    } else {
+        snprintf(out_path, max_len, "bmd_engine\\python\\%s", script_name);
+    }
 }
 
 static int cmd_inject_property_forward(const char* dirpath, const char* bmdpath) {
@@ -602,6 +803,9 @@ typedef struct {
     char receiver_sig[256];
     char current_hash[256];
     int  mode_transfer;
+    char property_bundle_hash[129];
+    uint64_t property_bundle_size;
+    bool property_bundle_destroyed;
 } redact_meta_t;
 
 typedef struct {
@@ -611,6 +815,8 @@ typedef struct {
     char         filename[1024];
     int          modified;
     int          compiled;
+    char*        bundle_data;
+    size_t       bundle_data_len;
 } redact_buf_t;
 
 static const char* REDACT_MANUAL =
@@ -620,32 +826,36 @@ static const char* REDACT_MANUAL =
 "  ================================================================================\n"
 "\n"
 "  WHAT IS BLOCKCHAIN MARKDOWN?\n"
-"  A .bmd file is a cryptographically sealed document. Once compiled and signed,\n"
-"  no character of its payload may be altered without breaking the SHA-512 hash\n"
-"  and Ed25519 signature. The .bmd file is the canonical truth; any HTML export\n"
-"  is only a rendering layer and carries no independent cryptographic authority.\n"
+"  A .bmd file is a cryptographically sealed document. Once compiled, no byte\n"
+"  of its payload may be altered without breaking the SHA-512 ledger hash and\n"
+"  Ed25519 digital signatures. Document uniqueness and custody are anchored\n"
+"  in cryptographic math (SHA-512 and Ed25519) rather than arbitrary block IDs,\n"
+"  making forged or spoofed document IDs impossible. The canonical truth lives\n"
+"  in the .bmd file; any HTML export is purely a rendering view layer.\n"
 "\n"
 "  GENERAL WORKFLOW\n"
 "  1. Open the studio (from the BMD shell or terminal):\n"
 "       bmd redact                         open blank new document\n"
 "       bmd redact my_contract.bmd         open existing file\n"
-"  2. Set frontmatter metadata with :set\n"
-"  3. Write content lines with :add\n"
-"  4. Preview the clean document with :preview\n"
-"  5. Save the draft with :save <filename.bmd>\n"
-"  6. Sign as Emitter with :sign <seed_hex>\n"
-"       (This hashes the payload, seals the document to transfer/immutable mode,\n"
-"        and embeds your Ed25519 public key and signature.)\n"
-"  7. If max_signatures >= 2, the Receiver must co-sign with :cosign <seed_hex>\n"
-"       (Only then is the document CONSENSUS RATIFIED.)\n"
-"  8. Export an HTML viewer with :render [output.html]\n"
-"  9. Verify integrity at any time with :verify\n"
+"  2. Set frontmatter metadata with :set (e.g. :set type contract)\n"
+"  3. Write content lines with :add <tag> text\n"
+"  4. Insert signature buttons: :add sign_button  (and :add cosign_button for 2 parties)\n"
+"  5. Preview the clean document with :preview\n"
+"  6. Save the draft with :save <filename.bmd>\n"
+"  7. Sign as Emitter with :sign\n"
+"       (Uses your authentic device SHA-512/Ed25519 identity key automatically.\n"
+"        Leaves document in DRAFT mode so you can continue editing if needed.)\n"
+"  8. When ready to seal forever, run :compile\n"
+"       (Displays retro purple pixel animation, locks document into TRANSFER mode,\n"
+"        and applies OS filesystem read-only lock attribute.)\n"
+"  9. If max_signatures >= 2, the Receiver co-signs with :cosign\n"
+"       (Uses Receiver device identity key automatically; reaches CONSENSUS RATIFIED.)\n"
+" 10. Export an HTML viewer with :render [output.html]\n"
+" 11. Verify integrity at any time with :verify\n"
 "\n"
 "  -------------------------\n"
-"  CONTENT TAGS  (used with :add)\n"
+"  CONTENT TAGS & BUTTON DIRECTIVES\n"
 "  -------------------------\n"
-"  Every line of content is wrapped in a tag that tells the engine how to render it.\n"
-"\n"
 "  <title>Your Title Text</title>\n"
 "      Document-level title. Rendered large and centered.\n"
 "      Example:  :add <title>Service Agreement 2026</title>\n"
@@ -660,174 +870,70 @@ static const char* REDACT_MANUAL =
 "\n"
 "  <body>Paragraph text here.</body>\n"
 "      Standard body paragraph text. Long lines word-wrap automatically.\n"
-"      Example:  :add <body>Provider agrees to deliver by June 1, 2026.\n"
+"      Example:  :add <body>Provider agrees to deliver software on schedule.</body>\n"
+"\n"
+"  <bmd:sign_button>   (or shortcut: :add sign_button)\n"
+"      Interactive Emitter signature button directive.\n"
+"      Shows pending status in draft, displays verified pubkey when signed.\n"
+"\n"
+"  <bmd:cosign_button> (or shortcut: :add cosign_button)\n"
+"      Interactive Receiver co-signature button directive.\n"
+"      Automatically sets max_signatures = 2.\n"
 "\n"
 "  <bmd:rule>\n"
 "      Renders a double horizontal rule separator (=====) across the page.\n"
-"      Use to separate major document sections.\n"
-"      Example:  :add <bmd:rule>\n"
 "\n"
 "  <bmd:rule single>\n"
 "      Renders a single horizontal rule separator (-----) across the page.\n"
-"      Example:  :add <bmd:rule single>\n"
 "\n"
 "  <bmd:parties>\n"
 "      Renders the Emitter and Receiver public key side-by-side table.\n"
-"      Populated automatically from frontmatter after signing.\n"
-"      Example:  :add <bmd:parties>\n"
 "\n"
 "  <bmd:signatures>\n"
-"      Renders the Ed25519 signature verification panel for both parties.\n"
-"      Example:  :add <bmd:signatures>\n"
+"      Renders the formal Ed25519 signature verification panel for both parties.\n"
 "\n"
 "  <bmd:seal>\n"
 "      Renders the final cryptographic custody seal line.\n"
-"      Best placed as the last line of the document.\n"
-"      Example:  :add <bmd:seal>\n"
 "\n"
 "  -------------------------\n"
 "  FRONTMATTER FIELDS  (:set command)\n"
 "  -------------------------\n"
-"  block_id          Unique identifier for this document block.\n"
-"                    Convention: prefix with 0x, use uppercase, year suffix.\n"
-"                    Example:  :set block_id 0xCONTRACT_SERVICES_2026\n"
-"\n"
-"  type              Document category. Not enforced; descriptive only.\n"
-"                    Values: contract, declaration, license, invoice, notice,\n"
-"                            certificate, agreement, addendum, amendment.\n"
+"  type              Document category (contract, declaration, license, invoice, agreement...)\n"
 "                    Example:  :set type contract\n"
 "\n"
-"  jurisdiction      Legal jurisdiction for the document.\n"
+"  jurisdiction      Legal jurisdiction (e.g. International, Delaware, Mexico, Open Standard)\n"
 "                    Example:  :set jurisdiction International\n"
-"                    Example:  :set jurisdiction United States - California\n"
 "\n"
-"  max_signatures    How many parties must sign for the document to be ratified.\n"
-"                    1 = Unilateral (Emitter only). No co-sign is ever possible.\n"
-"                    2 = Bilateral (Emitter + Receiver co-sign required).\n"
+"  max_signatures    Required signatures (1 = Unilateral, 2 = Bilateral counter-party)\n"
 "                    Example:  :set max_signatures 2\n"
 "\n"
+"  block_id          (Optional) Optional legacy label; not required for integrity.\n"
+"\n"
 "  -------------------------\n"
-"  ALL COMMANDS\n"
+"  ALL STUDIO COMMANDS\n"
 "  -------------------------\n"
-"  :help                        Show this manual\n"
-"  :add <tagged-line>           Append a tagged content line\n"
-"  :insert <N> <tagged-line>    Insert tagged line before line N (1-based)\n"
+"  :help                        Show this reference manual\n"
+"  :add <tag> text              Append a tagged content line\n"
+"  :add sign_button             Insert Emitter signature button (<bmd:sign_button>)\n"
+"  :add cosign_button           Insert Receiver co-sign button (<bmd:cosign_button>)\n"
+"  :insert <N> <tag> text       Insert tagged line before line N (1-based)\n"
 "  :delete <N>                  Delete line N\n"
-"  :set <field> <value>         Set a frontmatter field\n"
+"  :set <field> <value>         Set frontmatter (type, jurisdiction, max_signatures)\n"
 "  :list                        Show complete numbered line listing\n"
-"  :preview                     Show the clean document (tags hidden)\n"
-"  :compile [seed_hex]          Compute SHA-512 hash automatically + Ed25519 sign + freeze\n"
-"                               (interactive wizard: prompts for seed or key generation)\n"
-"  :sign [seed_hex]             Same as :compile - hash auto-computed, no manual entry needed\n"
-"                               (if seed omitted, prompts interactively with genkey option)\n"
-"  :cosign <seed_hex>           Co-sign as Receiver (only if max_signatures >= 2)\n"
-"  :save [filename.bmd]         Save current buffer to disk\n"
+"  :preview                     Show clean document preview (tags rendered)\n"
+"  :save [filename.bmd]         Save draft to disk\n"
+"  :inject [path]               Inject & encrypt codebase/folder into document\n"
+"  :extract [dir]               Extract & decrypt IP codebase from document\n"
+"  :sign                        Sign as Emitter with auto device key (keeps in DRAFT)\n"
+"  :compile                     Retro purple animation, freeze to TRANSFER & seal disk\n"
+"  :cosign                      Co-sign as Receiver with auto device key\n"
 "  :render [output.html]        Export standalone HTML viewer\n"
-"  :verify                      Cryptographically verify the saved file\n"
+"  :verify                      Cryptographically verify saved file\n"
 "  :inspect                     Show block metadata summary\n"
-"  :genkey                      Generate a new Ed25519 seed + pubkey pair\n"
-"  :read <file.bmd>             Open a different .bmd file\n"
+"  :read <file.bmd>             Open another .bmd file\n"
 "  :up  :down  :top  :bottom    Scroll the document view\n"
-"  :quit  :q  :exit             Exit (warns if unsaved changes exist)\n"
+"  :quit  :q  :exit             Exit editor (warns if unsaved changes exist)\n"
 "  :quit!  :q!                  Force quit without saving\n"
-"\n"
-"  -------------------------\n"
-"  EXAMPLE 1: UNILATERAL DECLARATION\n"
-"  -------------------------\n"
-"  A single-author document; no second party required.\n"
-"\n"
-"  :set block_id 0xDECL_AUTHORSHIP_2026\n"
-"  :set type declaration\n"
-"  :set jurisdiction International\n"
-"  :set max_signatures 1\n"
-"  :add <title>Official Notice of Authorship</title>\n"
-"  :add <bmd:rule>\n"
-"  :add <body>I, the undersigned, hereby declare sole authorship of the\n"
-"  :add <body>software work described herein, registered under BMD protocol.\n"
-"  :add <bmd:rule single>\n"
-"  :add <bmd:parties>\n"
-"  :add <bmd:seal>\n"
-"  :save authorship.bmd\n"
-"  :genkey                      (copy the seed_hex from output)\n"
-"  :sign <your_seed_hex>\n"
-"\n"
-"  -------------------------\n"
-"  EXAMPLE 2: BILATERAL CONTRACT (two parties)\n"
-"  -------------------------\n"
-"  Both parties must sign. Document is not ratified until co-sign is applied.\n"
-"\n"
-"  :set block_id 0xCONTRACT_SERVICE_2026\n"
-"  :set type contract\n"
-"  :set jurisdiction International\n"
-"  :set max_signatures 2\n"
-"  :add <title>Service Agreement</title>\n"
-"  :add <subtitle>Between Provider Corp and Client LLC - 2026</subtitle>\n"
-"  :add <bmd:rule>\n"
-"  :add <heading>Scope of Work</heading>\n"
-"  :add <body>Provider agrees to deliver software development services\n"
-"  :add <body>as specified in Appendix A by the agreed deadline.\n"
-"  :add <heading>Payment Terms</heading>\n"
-"  :add <body>Client agrees to pay the fixed fee upon delivery and acceptance.\n"
-"  :add <bmd:rule single>\n"
-"  :add <bmd:parties>\n"
-"  :add <bmd:signatures>\n"
-"  :add <bmd:seal>\n"
-"  :save service_agreement.bmd\n"
-"  :sign <emitter_seed_hex>        (Provider signs first)\n"
-"  --- Provider sends file to Client ---\n"
-"  :read service_agreement.bmd\n"
-"  :cosign <receiver_seed_hex>     (Client co-signs to ratify)\n"
-"\n"
-"  -------------------------\n"
-"  EXAMPLE 3: IP REGISTRATION\n"
-"  -------------------------\n"
-"  Record the authorship and hash of a creative or technical work.\n"
-"\n"
-"  :set block_id 0xIP_LIBEXAMPLE_V1_2026\n"
-"  :set type license\n"
-"  :set jurisdiction International\n"
-"  :set max_signatures 1\n"
-"  :add <title>Intellectual Property Registration</title>\n"
-"  :add <heading>Work Description</heading>\n"
-"  :add <body>This document registers the authorship of software library\n"
-"  :add <body>\"libexample\" version 1.0.0 as original work of the Emitter.\n"
-"  :add <heading>Cryptographic Record</heading>\n"
-"  :add <body>The SHA-512 hash of the canonical source archive is embedded\n"
-"  :add <body>in the sealed payload of this BMD block.\n"
-"  :add <bmd:seal>\n"
-"  :save ip_registration.bmd\n"
-"  :sign <your_seed_hex>\n"
-"\n"
-"  -------------------------\n"
-"  EXAMPLE 4: NOTICE / INVOICE\n"
-"  -------------------------\n"
-"  :set block_id 0xINVOICE_2026_001\n"
-"  :set type invoice\n"
-"  :set jurisdiction Mexico\n"
-"  :set max_signatures 1\n"
-"  :add <title>Invoice #2026-001</title>\n"
-"  :add <subtitle>Issued by Acme Dev Studio</subtitle>\n"
-"  :add <bmd:rule>\n"
-"  :add <heading>Billing Details</heading>\n"
-"  :add <body>Services rendered: Full-stack web application development\n"
-"  :add <body>Period: January - March 2026\n"
-"  :add <body>Total amount due: USD 4,500.00\n"
-"  :add <bmd:rule single>\n"
-"  :add <bmd:parties>\n"
-"  :add <bmd:seal>\n"
-"  :save invoice_001.bmd\n"
-"  :sign <your_seed_hex>\n"
-"\n"
-"  -------------------------\n"
-"  IMPORTANT NOTES\n"
-"  -------------------------\n"
-"  - Once :sign is executed, the document is permanently immutable. There is\n"
-"    no undo. The content is hashed and cryptographically locked.\n"
-"  - If max_signatures is 1, :cosign will be refused by the engine.\n"
-"  - Never share your seed hex with anyone. Your public key is safe to share.\n"
-"  - The .bmd file is the cryptographic ground truth. The HTML export\n"
-"    rendered with :render is only a viewing layer.\n"
-"  - Run :genkey at any time to generate a fresh cryptographic identity.\n"
 "\n"
 "  ================================================================================\n"
 "\n";
@@ -836,6 +942,12 @@ static void redact_clear_screen(void) {
     printf("\033[2J\033[H");
     fflush(stdout);
 }
+
+/* Forward declarations — defined later in the file, before cmd_view */
+static void print_sheet_title(const char* text);
+static void print_sheet_subtitle(const char* text);
+static void print_sheet_heading(const char* text);
+static void print_sheet_line(const char* text);
 
 /* Print a single-line button label padded to fixed width */
 static void redact_btn(const char* label, int width) {
@@ -858,8 +970,9 @@ static void redact_draw(redact_buf_t* buf, int scroll_top) {
 
     /* Frontmatter summary */
     printf("  Frontmatter:\n");
-    printf("    block_id        : %s\n",
-           buf->meta.block_id[0] ? buf->meta.block_id : "(not set  ->  :set block_id YOUR_UNIQUE_ID)");
+    if (buf->meta.block_id[0]) {
+        printf("    block_id        : %s\n", buf->meta.block_id);
+    }
     printf("    type            : %s\n",
            buf->meta.document_type[0] ? buf->meta.document_type : "(not set  ->  :set type declaration)");
     printf("    jurisdiction    : %s\n",
@@ -875,7 +988,7 @@ static void redact_draw(redact_buf_t* buf, int scroll_top) {
     if (buf->meta.emitter_sig[0]) {
         printf("[SIGNED]  pubkey: %.48s...\n", buf->meta.emitter_pubkey);
     } else {
-        printf("[UNSIGNED]\n");
+        printf("[UNSIGNED - ready for :sign]\n");
     }
     if (buf->meta.max_signatures >= 2) {
         printf("    receiver_sig    : ");
@@ -890,7 +1003,14 @@ static void redact_draw(redact_buf_t* buf, int scroll_top) {
         printf("    SHA-512 hash    : %.64s\n", buf->meta.current_hash);
         printf("                      %.64s\n", buf->meta.current_hash + 64);
     } else {
-        printf("    SHA-512 hash    : (computed automatically on :compile or :sign)\n");
+        printf("    SHA-512 hash    : (computed automatically on :sign or :compile)\n");
+    }
+    if (buf->meta.property_bundle_hash[0] != '\0') {
+        printf("    IP Bundle       : %llu bytes encrypted (ChaCha20) | SHA-256: %.20s...\n",
+               (unsigned long long)buf->meta.property_bundle_size,
+               buf->meta.property_bundle_hash);
+        printf("    IP Custody      : %s\n",
+               buf->meta.property_bundle_destroyed ? "OWNERSHIP TRANSFERRED (source moved into block)" : "INJECTED");
     }
     printf("\n");
 
@@ -929,19 +1049,20 @@ static void redact_draw(redact_buf_t* buf, int scroll_top) {
     printf("  ================================================================================\n");
 
     if (!buf->compiled) {
-        /* DRAFT MODE — show all action buttons */
+        /* DRAFT MODE */
         printf("  ACTIONS:\n");
         printf("  +-----------------------------+  +-----------------------------+\n");
-        printf("  |  :compile                   |  |  :sign <seed_hex>           |\n");
-        printf("  |  Compute SHA-512 hash &      |  |  Hash + Ed25519 sign +      |\n");
-        printf("  |  seal document to TRANSFER  |  |  freeze to IMMUTABLE mode   |\n");
-        printf("  |  (prompts for seed)         |  |  (provide 64-hex seed)      |\n");
+        printf("  |  :sign                      |  |  :compile                   |\n");
+        printf("  |  Sign with auto device key  |  |  Retro purple loading bar   |\n");
+        printf("  |  (remains in DRAFT mode)    |  |  Freeze to IMMUTABLE mode   |\n");
         printf("  +-----------------------------+  +-----------------------------+\n\n");
+        printf("  BUTTONS:  :add sign_button   :add cosign_button   :add extract_button\n");
+        printf("  IP ASSET: :inject <path>     (encrypts folder & embeds into block)\n");
         printf("  CONTENT:  :add <tag> text   :insert N <tag> text   :delete N   :set <field> <val>\n");
-        printf("  UTILITY:  :save [file]  :preview  :list  :genkey  :verify  :render  :help  :quit\n");
+        printf("  UTILITY:  :save [file]  :preview  :list  :verify  :render  :help  :quit\n");
         if (buf->meta.max_signatures >= 2 && buf->meta.emitter_sig[0] && !buf->meta.receiver_sig[0]) {
             printf("\n  +-------------------------------------------------------------+\n");
-            printf("  |  :cosign <receiver_seed_hex>   (Receiver co-signs to ratify) |\n");
+            printf("  |  :cosign                       (Receiver auto co-signs to ratify) |\n");
             printf("  +-------------------------------------------------------------+\n");
         }
     } else {
@@ -951,12 +1072,12 @@ static void redact_draw(redact_buf_t* buf, int scroll_top) {
         printf("  [IMMUTABLE]  Signatures: %d / %d  |  SHA-512 hash locked\n", sigs, cap);
         if (buf->meta.max_signatures >= 2 && buf->meta.emitter_sig[0] && !buf->meta.receiver_sig[0]) {
             printf("\n  +-------------------------------------------------------------+\n");
-            printf("  |  :cosign <receiver_seed_hex>   (Receiver co-signs to ratify) |\n");
+            printf("  |  :cosign                       (Receiver auto co-signs to ratify) |\n");
             printf("  +-------------------------------------------------------------+\n");
         } else if (sigs >= cap) {
             printf("  [CONSENSUS RATIFIED]  Signature cap reached. Document is fully sealed.\n");
         }
-        printf("\n  Available: :cosign <seed>  :render [out.html]  :verify  :inspect  :quit\n");
+        printf("\n  Available: :cosign  :extract [dir]  :render [out.html]  :verify  :inspect  :quit\n");
     }
     printf("  ================================================================================\n\n");
 }
@@ -972,6 +1093,42 @@ static void redact_show_preview(redact_buf_t* buf) {
         const char* raw = buf->lines[i];
         char clean[1024] = {0};
 
+        if (strstr(raw, "<bmd:sign_button>") || strstr(raw, ":add sign_button")) {
+            if (buf->meta.emitter_sig[0]) {
+                printf("  |  +------------------------------------------------------------------+  |\n");
+                printf("  |  |  [v SIGNED AS EMITTER]  Ed25519 Verified      (sealed)            |  |\n");
+                printf("  |  +------------------------------------------------------------------+  |\n");
+            } else {
+                printf("  |  +------------------------------------------------------------------+  |\n");
+                printf("  |  |  [ SIGN AS EMITTER ]   SHA-512 auto-computed  (run :sign)        |  |\n");
+                printf("  |  +------------------------------------------------------------------+  |\n");
+            }
+            continue;
+        }
+        if (strstr(raw, "<bmd:cosign_button>") || strstr(raw, ":add cosign_button")) {
+            if (buf->meta.receiver_sig[0]) {
+                printf("  |  +------------------------------------------------------------------+  |\n");
+                printf("  |  |  [v CO-SIGNED BY RECEIVER]  Ed25519 Ratified  (sealed)            |  |\n");
+                printf("  |  +------------------------------------------------------------------+  |\n");
+            } else {
+                printf("  |  +------------------------------------------------------------------+  |\n");
+                printf("  |  |  [ CO-SIGN AS RECEIVER ]  SHA-512 auto-computed  (run :cosign)   |  |\n");
+                printf("  |  +------------------------------------------------------------------+  |\n");
+            }
+            continue;
+        }
+        if (strstr(raw, "<bmd:extract_button>") || strstr(raw, ":add extract_button")) {
+            if (buf->meta.property_bundle_hash[0] != '\0' || buf->bundle_data) {
+                printf("  |  +------------------------------------------------------------------+  |\n");
+                printf("  |  |  [v EXTRACT INTELLIGENT PROPERTY] ChaCha20 Sealed (run :extract) |  |\n");
+                printf("  |  +------------------------------------------------------------------+  |\n");
+            } else {
+                printf("  |  +------------------------------------------------------------------+  |\n");
+                printf("  |  |  [ EXTRACT INTELLIGENT PROPERTY ] (No IP bundle attached)        |  |\n");
+                printf("  |  +------------------------------------------------------------------+  |\n");
+            }
+            continue;
+        }
         if (strstr(raw, "<bmd:rule")) {
             printf("  |  ======================================================================  |\n");
             continue;
@@ -1009,17 +1166,33 @@ static void redact_show_preview(redact_buf_t* buf) {
                 memcpy(clean, s1, len);
                 clean[len] = '\0';
                 if (strcmp(tags[t], "title") == 0) {
-                    printf("  |  *** %-72.72s  |\n", clean);
-                    printf("  |                                                                            |\n");
+                    print_sheet_title(clean);
+                } else if (strcmp(tags[t], "subtitle") == 0) {
+                    print_sheet_subtitle(clean);
+                } else if (strcmp(tags[t], "heading") == 0) {
+                    print_sheet_heading(clean);
                 } else {
-                    printf("  |  %-76.76s  |\n", clean);
+                    print_sheet_line(clean);
                 }
                 handled = 1;
                 break;
             }
         }
+        /* Markdown heading fallbacks */
         if (!handled) {
-            printf("  |  %-76.76s  |\n", raw);
+            if (strncmp(raw, "# ", 2) == 0) {
+                print_sheet_title(raw + 2);
+                handled = 1;
+            } else if (strncmp(raw, "## ", 3) == 0) {
+                print_sheet_subtitle(raw + 3);
+                handled = 1;
+            } else if (strncmp(raw, "### ", 4) == 0) {
+                print_sheet_heading(raw + 4);
+                handled = 1;
+            }
+        }
+        if (!handled) {
+            print_sheet_line(raw);
         }
     }
 
@@ -1039,6 +1212,8 @@ static int redact_save_bmd(redact_buf_t* buf, const char* path) {
         path = buf->filename;
     }
 
+    unlock_file_writable(path);
+
     FILE* f = fopen(path, "wb");
     if (!f) {
         printf("  [-] Cannot open '%s' for writing.\n", path);
@@ -1047,7 +1222,7 @@ static int redact_save_bmd(redact_buf_t* buf, const char* path) {
 
     fprintf(f, "---\n");
     fprintf(f, "bmd_version: 2.1\n");
-    fprintf(f, "block_id: %s\n",       buf->meta.block_id[0]       ? buf->meta.block_id       : "UNTITLED");
+    if (buf->meta.block_id[0])         fprintf(f, "block_id: %s\n",             buf->meta.block_id);
     fprintf(f, "document_type: %s\n",  buf->meta.document_type[0]  ? buf->meta.document_type  : "document");
     fprintf(f, "mode: %s\n",           buf->meta.mode_transfer      ? "transfer"               : "draft");
     fprintf(f, "jurisdiction: %s\n",   buf->meta.jurisdiction[0]   ? buf->meta.jurisdiction   : "International");
@@ -1058,6 +1233,22 @@ static int redact_save_bmd(redact_buf_t* buf, const char* path) {
     if (buf->meta.receiver_pubkey[0])  fprintf(f, "receiver_public_key: %s\n",  buf->meta.receiver_pubkey);
     if (buf->meta.receiver_sig[0])     fprintf(f, "receiver_signature: %s\n",   buf->meta.receiver_sig);
     if (buf->meta.current_hash[0])     fprintf(f, "current_hash: %s\n",         buf->meta.current_hash);
+    if (buf->meta.property_bundle_hash[0]) {
+        fprintf(f, "property_bundle_hash: \"%s\"\n", buf->meta.property_bundle_hash);
+        fprintf(f, "property_bundle_size: %llu\n", (unsigned long long)buf->meta.property_bundle_size);
+        fprintf(f, "property_bundle_destroyed: %s\n", buf->meta.property_bundle_destroyed ? "true" : "false");
+    }
+    if (buf->bundle_data && buf->bundle_data_len > 0) {
+        fprintf(f, "property_bundle: |\n");
+        const char* bd = buf->bundle_data;
+        size_t remaining = buf->bundle_data_len;
+        while (remaining > 0) {
+            size_t chunk = remaining < 76 ? remaining : 76;
+            fprintf(f, "  %.*s\n", (int)chunk, bd);
+            bd += chunk;
+            remaining -= chunk;
+        }
+    }
     fprintf(f, "---\n\n");
 
     for (int i = 0; i < buf->count; i++) {
@@ -1091,6 +1282,22 @@ static int redact_load_bmd(redact_buf_t* buf, const char* path) {
     strncpy(buf->meta.receiver_pubkey, doc->header.receiver_public_key,  sizeof(buf->meta.receiver_pubkey) - 1);
     strncpy(buf->meta.receiver_sig,    doc->header.receiver_signature,   sizeof(buf->meta.receiver_sig) - 1);
     strncpy(buf->meta.current_hash,    doc->header.current_hash,         sizeof(buf->meta.current_hash) - 1);
+    strncpy(buf->meta.property_bundle_hash, doc->header.property_bundle_hash, sizeof(buf->meta.property_bundle_hash) - 1);
+    buf->meta.property_bundle_size = doc->header.property_bundle_size;
+    buf->meta.property_bundle_destroyed = doc->header.property_bundle_destroyed;
+    if (buf->bundle_data) {
+        free(buf->bundle_data);
+        buf->bundle_data = NULL;
+        buf->bundle_data_len = 0;
+    }
+    if (doc->property_bundle_data && doc->property_bundle_data_len > 0) {
+        buf->bundle_data = (char*)malloc(doc->property_bundle_data_len + 1);
+        if (buf->bundle_data) {
+            memcpy(buf->bundle_data, doc->property_bundle_data, doc->property_bundle_data_len);
+            buf->bundle_data[doc->property_bundle_data_len] = '\0';
+            buf->bundle_data_len = doc->property_bundle_data_len;
+        }
+    }
     buf->meta.mode_transfer = (doc->header.mode == BMD_MODE_TRANSFER);
     buf->compiled           = buf->meta.mode_transfer;
     buf->count = 0;
@@ -1125,11 +1332,21 @@ static int cmd_redact_terminal(const char* filepath) {
     }
     buf->meta.max_signatures = 1;
 
-    /* Load existing file if provided */
+    /* Load existing file if provided, or set filename for new document */
     if (filepath && filepath[0] != '\0') {
-        if (redact_load_bmd(buf, filepath) != 0) {
-            free(buf);
-            return 1;
+        char clean_fp[1024];
+        resolve_bmd_path(filepath, clean_fp, sizeof(clean_fp));
+        FILE* ft = fopen(clean_fp, "rb");
+        if (ft) {
+            fclose(ft);
+            if (redact_load_bmd(buf, clean_fp) != 0) {
+                free(buf);
+                return 1;
+            }
+        } else {
+            /* File does not exist yet: start new document with this filename */
+            strncpy(buf->filename, clean_fp, sizeof(buf->filename) - 1);
+            buf->modified = 1;
         }
     }
 
@@ -1282,7 +1499,17 @@ static int cmd_redact_terminal(const char* filepath) {
                 continue;
             }
             const char* content = input + 5;
-            strncpy(buf->lines[buf->count], content, REDACT_LINE_CAP - 1);
+            while (*content == ' ') content++;
+            if (strcmp(content, "sign_button") == 0) {
+                strncpy(buf->lines[buf->count], "<bmd:sign_button>", REDACT_LINE_CAP - 1);
+            } else if (strcmp(content, "cosign_button") == 0) {
+                strncpy(buf->lines[buf->count], "<bmd:cosign_button>", REDACT_LINE_CAP - 1);
+                buf->meta.max_signatures = 2;
+            } else if (strcmp(content, "extract_button") == 0) {
+                strncpy(buf->lines[buf->count], "<bmd:extract_button>", REDACT_LINE_CAP - 1);
+            } else {
+                strncpy(buf->lines[buf->count], content, REDACT_LINE_CAP - 1);
+            }
             buf->lines[buf->count][REDACT_LINE_CAP - 1] = '\0';
             buf->count++;
             buf->modified = 1;
@@ -1309,7 +1536,16 @@ static int cmd_redact_terminal(const char* filepath) {
             for (int i = buf->count; i > idx; i--) {
                 memcpy(buf->lines[i], buf->lines[i-1], REDACT_LINE_CAP);
             }
-            strncpy(buf->lines[idx], rest, REDACT_LINE_CAP - 1);
+            if (strcmp(rest, "sign_button") == 0) {
+                strncpy(buf->lines[idx], "<bmd:sign_button>", REDACT_LINE_CAP - 1);
+            } else if (strcmp(rest, "cosign_button") == 0) {
+                strncpy(buf->lines[idx], "<bmd:cosign_button>", REDACT_LINE_CAP - 1);
+                buf->meta.max_signatures = 2;
+            } else if (strcmp(rest, "extract_button") == 0) {
+                strncpy(buf->lines[idx], "<bmd:extract_button>", REDACT_LINE_CAP - 1);
+            } else {
+                strncpy(buf->lines[idx], rest, REDACT_LINE_CAP - 1);
+            }
             buf->lines[idx][REDACT_LINE_CAP - 1] = '\0';
             buf->count++;
             buf->modified = 1;
@@ -1334,16 +1570,6 @@ static int cmd_redact_terminal(const char* filepath) {
             buf->modified = 1;
             if (scroll_top > 0 && scroll_top >= buf->count)
                 scroll_top = buf->count > 0 ? buf->count - 1 : 0;
-            continue;
-        }
-
-        /* GENKEY */
-        if (strcmp(input, ":genkey") == 0) {
-            cmd_genkey();
-            printf("\n  Copy the seed hex above and use it with :sign.\n");
-            printf("  Press ENTER to continue.\n  redact> ");
-            fflush(stdout);
-            char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
             continue;
         }
 
@@ -1388,85 +1614,95 @@ static int cmd_redact_terminal(const char* filepath) {
             continue;
         }
 
-        /* SIGN (compile + SHA-512 auto-hash + Ed25519 signature + freeze) */
-        if (strncmp(input, ":sign", 5) == 0 && (input[5] == ' ' || input[5] == '\0')) {
+        /* INJECT IP PROPERTY BUNDLE */
+        if (strncmp(input, ":inject", 7) == 0 && (input[7] == ' ' || input[7] == '\0' || input[7] == '_' || input[7] == '-')) {
             if (buf->compiled) {
-                printf("  [-] Document is already sealed and cannot be signed again.\n");
+                printf("  [-] Document is already sealed in TRANSFER mode. Cannot inject property.\n");
                 printf("  Press ENTER.\n  redact> ");
                 fflush(stdout);
                 char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
                 continue;
             }
-            if (buf->filename[0] == '\0') {
-                printf("  [-] Save the draft first:  :save <filename.bmd>\n");
-                printf("  Press ENTER.\n  redact> ");
-                fflush(stdout);
-                char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
-                continue;
+            char dir_buf[1024] = {0};
+            const char* dir = input + 7;
+            if (*dir == '_' || *dir == '-') {
+                while (*dir && *dir != ' ') dir++;
             }
-
-            /* Extract seed from command, or prompt interactively */
-            const char* seed_arg = input + 5;
-            while (*seed_arg == ' ') seed_arg++;
-
-            char seed_buf[128] = {0};
-            if (seed_arg[0] == '\0') {
-                /* No seed provided — prompt */
-                printf("\n  No seed provided. Options:\n");
-                printf("    G) Generate a new keypair now (recommended for new identities)\n");
-                printf("    E) Enter existing seed hex manually\n");
-                printf("\n  Choice [G/E]: ");
+            while (*dir == ' ') dir++;
+            if (*dir == '\0') {
+                printf("  [?] Enter path to directory or file to inject (e.g. ./my_code): ");
                 fflush(stdout);
-                char choice[8];
-                fgets(choice, sizeof(choice), stdin);
-                trim_line(choice);
-                if (choice[0] == 'G' || choice[0] == 'g') {
-                    /* Auto-generate and display, then use it */
-                    printf("\n  [+] Generating new Ed25519 keypair...\n");
-                    cmd_genkey();
-                    printf("\n  Copy the seed hex shown above and paste it below.\n");
+                if (!fgets(dir_buf, sizeof(dir_buf), stdin)) continue;
+                trim_line(dir_buf);
+                if (dir_buf[0] == '\0') {
+                    printf("  Cancelled.\n");
+                    continue;
                 }
-                printf("  Enter seed hex (64 hex chars): ");
-                fflush(stdout);
-                fgets(seed_buf, sizeof(seed_buf), stdin);
-                trim_line(seed_buf);
-                seed_arg = seed_buf;
+                dir = dir_buf;
             }
 
-            if (strlen(seed_arg) != 64) {
-                printf("  [-] Invalid seed: must be exactly 64 hexadecimal characters (32 bytes).\n");
-                printf("      Got %zu characters. Run :genkey to generate a valid seed.\n", strlen(seed_arg));
-                printf("  Press ENTER.\n  redact> ");
+            char clean_dir[1024];
+            strncpy(clean_dir, dir, sizeof(clean_dir) - 1);
+            clean_dir[sizeof(clean_dir) - 1] = '\0';
+            sanitize_path(clean_dir);
+
+            FILE* test_f = fopen(clean_dir, "rb");
+            DWORD attr = GetFileAttributesA(clean_dir);
+            if (!test_f && attr == (DWORD)-1) {
+                printf("  [-] Path not found on laptop: '%s'\n", clean_dir);
+                printf("      Please verify that the file or directory exists.\n");
+                printf("  Press ENTER to continue.\n  redact> ");
                 fflush(stdout);
                 char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
                 continue;
             }
+            if (test_f) fclose(test_f);
 
-            printf("\n  [+] Saving draft...\n");
+            if (buf->filename[0] == '\0') {
+                printf("  [?] No document filename set. Enter filename to save as (e.g. contract.bmd): ");
+                fflush(stdout);
+                char fname_input[1024];
+                if (!fgets(fname_input, sizeof(fname_input), stdin)) continue;
+                trim_line(fname_input);
+                if (fname_input[0] == '\0') {
+                    printf("  Cancelled.\n");
+                    continue;
+                }
+                sanitize_path(fname_input);
+                if (strlen(fname_input) < 4 || strcmp(fname_input + strlen(fname_input) - 4, ".bmd") != 0) {
+                    snprintf(buf->filename, sizeof(buf->filename), "%s.bmd", fname_input);
+                } else {
+                    strncpy(buf->filename, fname_input, sizeof(buf->filename) - 1);
+                }
+            }
+
+            printf("\n  [+] Saving current document before injection...\n");
             if (redact_save_bmd(buf, NULL) != 0) continue;
 
-            printf("  [+] Computing SHA-512 hash of payload and signing with Ed25519...\n");
-            printf("      This is fully automatic - no manual hash computation required.\n\n");
-
-            int rc = cmd_compile_sign(buf->filename, seed_arg);
+            printf("  [+] Injecting and encrypting property from: %s\n", clean_dir);
+            int rc = cmd_inject_property_forward(clean_dir, buf->filename);
             if (rc == 0) {
                 redact_load_bmd(buf, buf->filename);
-                printf("\n  ================================================================\n");
-                printf("  [+] DOCUMENT SUCCESSFULLY COMPILED AND SIGNED\n");
-                printf("  ================================================================\n");
-                printf("  SHA-512 Hash : %.64s\n", buf->meta.current_hash);
-                printf("               : %.64s\n", buf->meta.current_hash + 64);
-                printf("  Pubkey       : %.64s\n", buf->meta.emitter_pubkey);
-                printf("  Signature    : %.64s...\n", buf->meta.emitter_sig);
-                printf("  Mode         : TRANSFER (IMMUTABLE)\n");
-                printf("  ================================================================\n");
-                if (buf->meta.max_signatures >= 2) {
-                    printf("\n  Next step: send file to Receiver for co-signature.\n");
-                    printf("  Receiver runs:  :cosign <receiver_seed_hex>\n");
+                buf->modified = 1;
+
+                /* Auto-append <bmd:extract_button> if not present in lines */
+                bool has_btn = false;
+                for (int i = 0; i < buf->count; i++) {
+                    if (strstr(buf->lines[i], "extract_button")) { has_btn = true; break; }
                 }
+                if (!has_btn && buf->count < REDACT_MAX_LINES) {
+                    strncpy(buf->lines[buf->count++], "<bmd:extract_button>", REDACT_LINE_CAP - 1);
+                    redact_save_bmd(buf, NULL);
+                    printf("  [+] Appended <bmd:extract_button> to document layout.\n");
+                }
+
+                printf("\n  ================================================================\n");
+                printf("  [+] IP PROPERTY INJECTED & SECURELY SEALED INTO BLOCK!\n");
+                printf("  ================================================================\n");
+                printf("  Source files were moved/destroyed on disk (True Ownership Transfer).\n");
+                printf("  The bundle is compressed and encrypted with ChaCha20.\n");
             } else {
-                printf("  [-] Sign failed. The engine returned an error.\n");
-                printf("      Make sure seed is 64 valid hex characters.\n");
+                printf("\n  [-] Injection failed. Ensure the directory exists.\n");
             }
             printf("\n  Press ENTER to continue.\n  redact> ");
             fflush(stdout);
@@ -1474,10 +1710,108 @@ static int cmd_redact_terminal(const char* filepath) {
             continue;
         }
 
-        /* COMPILE — interactive: compute hash + seal, prompt for seed */
+        /* EXTRACT IP PROPERTY BUNDLE */
+        if (strncmp(input, ":extract", 8) == 0 && (input[8] == ' ' || input[8] == '\0' || input[8] == '_' || input[8] == '-')) {
+            if (buf->filename[0] == '\0') {
+                printf("  [-] No document loaded.\n");
+                printf("  Press ENTER.\n  redact> ");
+                fflush(stdout);
+                char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
+                continue;
+            }
+            if (buf->meta.property_bundle_hash[0] == '\0' && !buf->bundle_data) {
+                printf("  [-] No IP Property Bundle found in this document.\n");
+                printf("  Press ENTER.\n  redact> ");
+                fflush(stdout);
+                char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
+                continue;
+            }
+            const char* out_arg = input + 8;
+            if (*out_arg == '_' || *out_arg == '-') {
+                while (*out_arg && *out_arg != ' ') out_arg++;
+            }
+            while (*out_arg == ' ') out_arg++;
+
+            char clean_out[1024] = {0};
+            if (out_arg[0] != '\0') {
+                strncpy(clean_out, out_arg, sizeof(clean_out) - 1);
+                sanitize_path(clean_out);
+            } else {
+                strncpy(clean_out, "./extracted_ip", sizeof(clean_out) - 1);
+            }
+            char abs_out[1024] = {0};
+#if defined(_WIN32)
+            if (!_fullpath(abs_out, clean_out, sizeof(abs_out) - 1)) {
+                strncpy(abs_out, clean_out, sizeof(abs_out) - 1);
+            }
+#else
+            if (!realpath(clean_out, abs_out)) {
+                strncpy(abs_out, clean_out, sizeof(abs_out) - 1);
+            }
+#endif
+            printf("\n  [+] Extracting and decrypting IP bundle to: %s\n", abs_out);
+            int rc = cmd_extract_property_forward(buf->filename, clean_out);
+            if (rc == 0) {
+                printf("\n  ================================================================\n");
+                printf("  [+] EXTRACTION SUCCESSFUL!\n");
+                printf("  ================================================================\n");
+                printf("  Your files have been decrypted and restored to this folder:\n");
+                printf("  -> %s\n", abs_out);
+                printf("  ================================================================\n");
+            } else {
+                printf("  [-] Extraction failed.\n");
+            }
+            printf("\n  Press ENTER to continue.\n  redact> ");
+            fflush(stdout);
+            char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
+            continue;
+        }
+
+        /* SIGN (Signs as Emitter in DRAFT mode; does NOT freeze document!) */
+        if (strncmp(input, ":sign", 5) == 0 && (input[5] == ' ' || input[5] == '\0')) {
+            if (buf->compiled) {
+                printf("  [-] Document is already sealed in TRANSFER mode and cannot be modified.\n");
+                printf("  Press ENTER.\n  redact> ");
+                fflush(stdout);
+                char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
+                continue;
+            }
+            if (buf->filename[0] == '\0') {
+                printf("  [?] No filename set. Enter filename to save as (e.g. contract.bmd): ");
+                fflush(stdout);
+                char fname_input[1024];
+                if (!fgets(fname_input, sizeof(fname_input), stdin)) continue;
+                trim_line(fname_input);
+                if (fname_input[0] == '\0') {
+                    printf("  Cancelled.\n");
+                    continue;
+                }
+                strncpy(buf->filename, fname_input, sizeof(buf->filename) - 1);
+                buf->filename[sizeof(buf->filename) - 1] = '\0';
+            }
+
+            printf("\n  [+] Saving draft...\n");
+            if (redact_save_bmd(buf, NULL) != 0) continue;
+
+            int rc = cmd_sign(buf->filename, NULL);
+            if (rc == 0) {
+                redact_load_bmd(buf, buf->filename);
+                buf->compiled = 0; /* Remains in DRAFT mode! */
+                printf("\n  [+] Document signed as Emitter! Document remains in DRAFT (mutable) mode.\n");
+                printf("      You may continue adding lines/buttons. When ready to seal forever, run :compile.\n");
+            } else {
+                printf("  [-] Sign failed.\n");
+            }
+            printf("\n  Press ENTER to continue.\n  redact> ");
+            fflush(stdout);
+            char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
+            continue;
+        }
+
+        /* COMPILE — Freezes document to immutable TRANSFER mode with retro purple loading bar */
         if (strcmp(input, ":compile") == 0 || strncmp(input, ":compile ", 9) == 0) {
             if (buf->compiled) {
-                printf("  [-] Document is already compiled and sealed.\n");
+                printf("  [-] Document is already compiled and sealed in TRANSFER mode.\n");
                 printf("  Press ENTER.\n  redact> ");
                 fflush(stdout);
                 char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
@@ -1490,95 +1824,56 @@ static int cmd_redact_terminal(const char* filepath) {
                 char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
                 continue;
             }
-            if (!buf->meta.block_id[0]) {
-                printf("  [-] block_id is not set. Run:  :set block_id YOUR_UNIQUE_ID\n");
-                printf("  Press ENTER.\n  redact> ");
-                fflush(stdout);
-                char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
-                continue;
-            }
             if (buf->filename[0] == '\0') {
-                printf("  [-] Save the draft first:  :save <filename.bmd>\n");
-                printf("  Press ENTER.\n  redact> ");
+                printf("  [?] No filename set. Enter filename to save as (e.g. contract.bmd): ");
                 fflush(stdout);
-                char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
-                continue;
-            }
-
-            /* Seed can come from command arg or interactive prompt */
-            const char* seed_arg = input + 8;
-            if (strncmp(input, ":compile ", 9) == 0) {
-                while (*seed_arg == ' ') seed_arg++;
-            } else {
-                seed_arg = "";
-            }
-
-            char seed_buf[128] = {0};
-            if (seed_arg[0] == '\0') {
-                printf("\n  COMPILE & SIGN\n");
-                printf("  --------------\n");
-                printf("  Compiling will:\n");
-                printf("    1. Compute the SHA-512 hash of the payload automatically\n");
-                printf("    2. Generate your Ed25519 keypair from the seed\n");
-                printf("    3. Sign the hash with your private key\n");
-                printf("    4. Freeze the document to TRANSFER (IMMUTABLE) mode\n\n");
-                printf("  Options:\n");
-                printf("    G) Generate a fresh keypair now\n");
-                printf("    E) Use an existing seed hex\n");
-                printf("\n  Choice [G/E]: ");
-                fflush(stdout);
-                char choice[8];
-                fgets(choice, sizeof(choice), stdin);
-                trim_line(choice);
-                if (choice[0] == 'G' || choice[0] == 'g') {
-                    printf("\n  [+] Generating new Ed25519 keypair...\n\n");
-                    cmd_genkey();
-                    printf("\n  Copy the seed hex above, then paste it below.\n");
+                char fname_input[1024];
+                if (!fgets(fname_input, sizeof(fname_input), stdin)) continue;
+                trim_line(fname_input);
+                if (fname_input[0] == '\0') {
+                    printf("  Cancelled.\n");
+                    continue;
                 }
-                printf("  Enter seed hex (64 hex chars): ");
-                fflush(stdout);
-                fgets(seed_buf, sizeof(seed_buf), stdin);
-                trim_line(seed_buf);
-                seed_arg = seed_buf;
-            }
-
-            if (strlen(seed_arg) != 64) {
-                printf("  [-] Invalid seed: must be exactly 64 hexadecimal characters (32 bytes).\n");
-                printf("      Got %zu characters.\n", strlen(seed_arg));
-                printf("  Press ENTER.\n  redact> ");
-                fflush(stdout);
-                char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
-                continue;
+                strncpy(buf->filename, fname_input, sizeof(buf->filename) - 1);
+                buf->filename[sizeof(buf->filename) - 1] = '\0';
             }
 
             printf("\n  [+] Saving draft to disk...\n");
             if (redact_save_bmd(buf, NULL) != 0) continue;
 
-            printf("  [+] Computing SHA-512 payload hash automatically...\n");
-            printf("  [+] Signing with Ed25519 (deterministic from seed)...\n\n");
-
-            int rc = cmd_compile_sign(buf->filename, seed_arg);
+            int rc = cmd_compile(buf->filename, NULL);
             if (rc == 0) {
                 redact_load_bmd(buf, buf->filename);
+                buf->compiled = 1;
+
+                /* Resolve absolute path of the compiled file */
+                char abs_path[1024] = {0};
+#if defined(_WIN32)
+                if (!_fullpath(abs_path, buf->filename, sizeof(abs_path) - 1)) {
+                    strncpy(abs_path, buf->filename, sizeof(abs_path) - 1);
+                }
+#else
+                if (!realpath(buf->filename, abs_path)) {
+                    strncpy(abs_path, buf->filename, sizeof(abs_path) - 1);
+                }
+#endif
                 printf("\n  ================================================================\n");
-                printf("  [+] COMPILE SUCCESSFUL — DOCUMENT SEALED\n");
+                printf("  [+] COMPILE SUCCESSFUL — DOCUMENT SEALED (TRANSFER MODE)\n");
                 printf("  ================================================================\n");
+                printf("  File         : %s\n", abs_path);
                 printf("  SHA-512 Hash : %.64s\n", buf->meta.current_hash);
                 printf("               : %.64s\n", buf->meta.current_hash + 64);
                 printf("  Pubkey       : %.64s\n", buf->meta.emitter_pubkey);
                 printf("  Signature    : %.64s...\n", buf->meta.emitter_sig);
-                printf("  Mode         : TRANSFER (IMMUTABLE)\n");
-                printf("  File         : %s\n", buf->filename);
+                printf("  Mode         : TRANSFER (IMMUTABLE SEALED)\n");
+                printf("  Disk Status  : Read-only locked (tamper-proof)\n");
                 printf("  ================================================================\n");
-                printf("\n  The SHA-512 hash was computed automatically from the payload.\n");
-                printf("  The document is now cryptographically sealed. No content can\n");
-                printf("  be changed without breaking the hash and signature.\n");
                 if (buf->meta.max_signatures >= 2) {
-                    printf("\n  Next step: Receiver must co-sign.\n");
-                    printf("  Send the .bmd file, then Receiver runs:  :cosign <seed_hex>\n");
+                    printf("\n  Next step: Receiver must co-sign to ratify.\n");
+                    printf("  Receiver runs:  :cosign\n");
                 }
             } else {
-                printf("  [-] Compile failed. Check seed format (64 hex chars required).\n");
+                printf("  [-] Compile failed.\n");
             }
             printf("\n  Press ENTER to continue.\n  redact> ");
             fflush(stdout);
@@ -1587,9 +1882,9 @@ static int cmd_redact_terminal(const char* filepath) {
         }
 
         /* COSIGN */
-        if (strncmp(input, ":cosign ", 8) == 0) {
+        if (strncmp(input, ":cosign", 7) == 0 && (input[7] == ' ' || input[7] == '\0')) {
             if (!buf->meta.emitter_sig[0]) {
-                printf("  [-] Document must be signed by Emitter first:  :sign <seed_hex>\n");
+                printf("  [-] Document must be signed by Emitter first:  :sign\n");
                 printf("  Press ENTER.\n  redact> ");
                 fflush(stdout);
                 char tmp[8]; fgets(tmp, sizeof(tmp), stdin);
@@ -1597,7 +1892,7 @@ static int cmd_redact_terminal(const char* filepath) {
             }
             if (buf->meta.max_signatures < 2) {
                 printf("  [-] Co-sign is not permitted.\n");
-                printf("      max_signatures = %d (unilateral). This document is sealed by the Emitter only.\n",
+                printf("      max_signatures = %d (unilateral). This document is sealed by Emitter only.\n",
                        buf->meta.max_signatures);
                 printf("  Press ENTER.\n  redact> ");
                 fflush(stdout);
@@ -1612,18 +1907,26 @@ static int cmd_redact_terminal(const char* filepath) {
                 continue;
             }
             if (buf->filename[0] == '\0') {
-                printf("  [-] Save the file first.\n");
-                continue;
+                printf("  [?] No filename set. Enter filename to save as (e.g. contract.bmd): ");
+                fflush(stdout);
+                char fname_input[1024];
+                if (!fgets(fname_input, sizeof(fname_input), stdin)) continue;
+                trim_line(fname_input);
+                if (fname_input[0] == '\0') {
+                    printf("  Cancelled.\n");
+                    continue;
+                }
+                strncpy(buf->filename, fname_input, sizeof(buf->filename) - 1);
+                buf->filename[sizeof(buf->filename) - 1] = '\0';
+                if (redact_save_bmd(buf, NULL) != 0) continue;
             }
-            const char* seed = input + 8;
-            while (*seed == ' ') seed++;
-            int rc = cmd_cosign(buf->filename, seed);
+            int rc = cmd_cosign(buf->filename, NULL);
             if (rc == 0) {
                 redact_load_bmd(buf, buf->filename);
-                printf("  [+] Co-signed successfully. Document is now CONSENSUS RATIFIED.\n");
-                printf("      Both parties have signed. Signature cap reached.\n");
+                printf("  [+] Co-signed successfully with authentic Receiver key!\n");
+                printf("      Document is now CONSENSUS RATIFIED (dual-signed).\n");
             } else {
-                printf("  [-] Co-sign failed. Check seed format.\n");
+                printf("  [-] Co-sign failed.\n");
             }
             printf("  Press ENTER to continue.\n  redact> ");
             fflush(stdout);
@@ -1648,9 +1951,13 @@ static int cmd_redact_terminal(const char* filepath) {
         /* Unknown command */
         printf("  [-] Unknown command: '%s'\n", input);
         printf("      Type :help to see the full manual and command list.\n");
+        printf("  Press ENTER to continue.\n  redact> ");
+        fflush(stdout);
+        char tmp_unk[8]; fgets(tmp_unk, sizeof(tmp_unk), stdin);
     }
 
     printf("\n  [*] Redact Studio closed.\n\n");
+    if (buf->bundle_data) free(buf->bundle_data);
     free(buf);
     return 0;
 }
@@ -1688,6 +1995,104 @@ static int cmd_export_office(const char* filepath) {
     return valid ? 0 : 2;
 }
 
+/* ---- Terminal typography helpers (legal document hierarchy) ---- */
+
+/* Centre a plain text string inside the 76-char letter-sheet column.
+   The printable width of the sheet interior is 76 chars (between "  |" borders).
+   We pad the text to fill that width so the right border aligns. */
+static void print_sheet_centered(const char* text) {
+    int len = (int)strlen(text);
+    int interior = 76;   /* chars between the two "  |" borders */
+    int pad_total = interior - len;
+    if (pad_total < 0) pad_total = 0;
+    int pad_left  = pad_total / 2;
+    int pad_right = pad_total - pad_left;
+    /* Build padded string manually to avoid dynamic alloc */
+    char buf[256];
+    int bi = 0;
+    for (int i = 0; i < pad_left  && bi < 254; i++) buf[bi++] = ' ';
+    for (int i = 0; text[i] && bi < 254; i++)        buf[bi++] = text[i];
+    for (int i = 0; i < pad_right && bi < 254; i++)  buf[bi++] = ' ';
+    buf[bi] = '\0';
+    printf("  |%s|\n", buf);
+}
+
+/* TITLE — bold white, centred, uppercased, with surrounding blank lines.
+   Professional legal ratio: title is visually dominant (2× body weight). */
+static void print_sheet_title(const char* text) {
+    /* Convert to uppercase */
+    char upper[256];
+    int i;
+    for (i = 0; text[i] && i < 253; i++)
+        upper[i] = (char)(((unsigned char)text[i] >= 'a' && (unsigned char)text[i] <= 'z')
+                          ? text[i] - 32 : text[i]);
+    upper[i] = '\0';
+
+    /* Compose: *** TITLE *** */
+    char decorated[256];
+    snprintf(decorated, sizeof(decorated), "*** %s ***", upper);
+
+    /* Centre inside 76-char interior */
+    int len  = (int)strlen(decorated);
+    int interior = 76;
+    int pad_total = interior - len;
+    if (pad_total < 0) pad_total = 0;
+    int pad_left  = pad_total / 2;
+    int pad_right = pad_total - pad_left;
+    char lpad[128] = {0}, rpad[128] = {0};
+    memset(lpad, ' ', (size_t)pad_left);
+    memset(rpad, ' ', (size_t)pad_right);
+
+    printf("  |                                                                            |\n");
+    /* ANSI bold bright-white for title prominence */
+    printf("  |\033[1;97m%s%s%s\033[0m|\n", lpad, decorated, rpad);
+    printf("  |                                                                            |\n");
+}
+
+/* SUBTITLE — centred, muted (dim), delimited with dashes */
+static void print_sheet_subtitle(const char* text) {
+    char decorated[256];
+    snprintf(decorated, sizeof(decorated), "-- %s --", text);
+    /* ANSI dim/italic for subtitle (subordinate to title) */
+    int len  = (int)strlen(decorated);
+    int interior = 76;
+    int pad_total = interior - len;
+    if (pad_total < 0) pad_total = 0;
+    int pad_left  = pad_total / 2;
+    int pad_right = pad_total - pad_left;
+    char lpad[128] = {0}, rpad[128] = {0};
+    memset(lpad, ' ', (size_t)pad_left);
+    memset(rpad, ' ', (size_t)pad_right);
+    printf("  |\033[2m%s%s%s\033[0m|\n", lpad, decorated, rpad);
+    printf("  |                                                                            |\n");
+}
+
+/* HEADING — uppercase section header with === delimiters, bold */
+static void print_sheet_heading(const char* text) {
+    char upper[256];
+    int i;
+    for (i = 0; text[i] && i < 253; i++)
+        upper[i] = (char)(((unsigned char)text[i] >= 'a' && (unsigned char)text[i] <= 'z')
+                          ? text[i] - 32 : text[i]);
+    upper[i] = '\0';
+
+    char decorated[256];
+    snprintf(decorated, sizeof(decorated), "=== %s ===", upper);
+
+    int len  = (int)strlen(decorated);
+    int interior = 76;
+    int pad_total = interior - len;
+    if (pad_total < 0) pad_total = 0;
+    int pad_left  = pad_total / 2;
+    int pad_right = pad_total - pad_left;
+    char lpad[128] = {0}, rpad[128] = {0};
+    memset(lpad, ' ', (size_t)pad_left);
+    memset(rpad, ' ', (size_t)pad_right);
+    printf("  |                                                                            |\n");
+    printf("  |\033[1m%s%s%s\033[0m|\n", lpad, decorated, rpad);
+}
+
+/* BODY — left-aligned, word-wrapped at 72 cols (standard legal body text) */
 static void print_sheet_line(const char* text) {
     if (!text || *text == '\0') {
         printf("  |                                                                            |\n");
@@ -1749,7 +2154,9 @@ static int cmd_view(const char* filepath) {
     }
     printf("  |  ========================================================================  |\n");
     printf("  |                                                                            |\n");
-    printf("  |  BLOCK ID      : %-56.56s  |\n", doc->header.block_id);
+    if (doc->header.block_id[0] != '\0') {
+        printf("  |  BLOCK ID      : %-56.56s  |\n", doc->header.block_id);
+    }
     printf("  |  DOCUMENT TYPE : %-56.56s  |\n", doc->header.document_type[0] ? doc->header.document_type : "unspecified");
     printf("  |  MODE          : %-56.56s  |\n", doc->header.mode == BMD_MODE_TRANSFER ? "transfer (FROZEN IMMUTABLE)" : "draft (MUTABLE DRAFT)");
     printf("  |  JURISDICTION  : %-56.56s  |\n", doc->header.jurisdiction[0] ? doc->header.jurisdiction : "International");
@@ -1787,6 +2194,46 @@ static int cmd_view(const char* filepath) {
                 continue;
             }
 
+            if (strstr(line, "<bmd:sign_button>") || strstr(line, "<!-- bmd:sign_button -->")) {
+                if (doc->header.signature_layer_2[0] != '\0') {
+                    printf("  |  +-- [ BUTTON: SIGN AS EMITTER ] ----------------------------------------+ |\n");
+                    printf("  |  | Status: DIGITALLY SEALED (Ed25519 Verified)                           | |\n");
+                    printf("  |  | Pubkey: %-61.61s | |\n", doc->header.public_key);
+                    printf("  |  +-----------------------------------------------------------------------+ |\n");
+                } else {
+                    printf("  |  +-- [ BUTTON: SIGN AS EMITTER ] ----------------------------------------+ |\n");
+                    printf("  |  | Status: PENDING SIGNATURE (Unsigned draft)                            | |\n");
+                    printf("  |  +-----------------------------------------------------------------------+ |\n");
+                }
+                continue;
+            }
+            if (strstr(line, "<bmd:cosign_button>") || strstr(line, "<!-- bmd:cosign_button -->")) {
+                if (doc->header.receiver_signature[0] != '\0') {
+                    printf("  |  +-- [ BUTTON: CO-SIGN AS RECEIVER ] ------------------------------------+ |\n");
+                    printf("  |  | Status: CO-SIGNED & RATIFIED (Ed25519 Ratified)                       | |\n");
+                    printf("  |  | Pubkey: %-61.61s | |\n", doc->header.receiver_public_key);
+                    printf("  |  +-----------------------------------------------------------------------+ |\n");
+                } else {
+                    printf("  |  +-- [ BUTTON: CO-SIGN AS RECEIVER ] ------------------------------------+ |\n");
+                    printf("  |  | Status: AWAITING COUNTERPARTY RATIFICATION                            | |\n");
+                    printf("  |  +-----------------------------------------------------------------------+ |\n");
+                }
+                continue;
+            }
+            if (strstr(line, "<bmd:extract_button>") || strstr(line, "<!-- bmd:extract_button -->")) {
+                if (doc->header.property_bundle_hash[0] != '\0') {
+                    printf("  |  +-- [ BUTTON: EXTRACT INTELLIGENT PROPERTY (IP) ] ----------------------+ |\n");
+                    printf("  |  | Status: DIGITALLY SEALED (ChaCha20-Poly1305 Encrypted)                | |\n");
+                    printf("  |  | Asset : %llu bytes | Extract with: bmd --extract-property             | |\n",
+                           (unsigned long long)doc->header.property_bundle_size);
+                    printf("  |  +-----------------------------------------------------------------------+ |\n");
+                } else {
+                    printf("  |  +-- [ BUTTON: EXTRACT INTELLIGENT PROPERTY (IP) ] ----------------------+ |\n");
+                    printf("  |  | Status: NO ASSET ATTACHED (Use :inject <path> in Studio)              | |\n");
+                    printf("  |  +-----------------------------------------------------------------------+ |\n");
+                }
+                continue;
+            }
             if (strstr(line, "<!-- bmd:rule double -->") || strstr(line, "<bmd:rule double>") || strstr(line, "<bmd:rule>")) {
                 printf("  |  ========================================================================  |\n");
                 continue;
@@ -1829,11 +2276,7 @@ static int cmd_view(const char* filepath) {
                 if (tlen >= sizeof(clean_text)) tlen = sizeof(clean_text) - 1;
                 memcpy(clean_text, s1, tlen);
                 clean_text[tlen] = '\0';
-                char fmt[1024];
-                snprintf(fmt, sizeof(fmt), "*** %s ***", clean_text);
-                print_sheet_line("");
-                print_sheet_line(fmt);
-                print_sheet_line("");
+                print_sheet_title(clean_text);
             } else if (strstr(line, "<subtitle>")) {
                 char* s1 = strstr(line, "<subtitle>") + 10;
                 char* s2 = strstr(s1, "</subtitle>");
@@ -1841,10 +2284,7 @@ static int cmd_view(const char* filepath) {
                 if (tlen >= sizeof(clean_text)) tlen = sizeof(clean_text) - 1;
                 memcpy(clean_text, s1, tlen);
                 clean_text[tlen] = '\0';
-                char fmt[1024];
-                snprintf(fmt, sizeof(fmt), "--- %s ---", clean_text);
-                print_sheet_line(fmt);
-                print_sheet_line("");
+                print_sheet_subtitle(clean_text);
             } else if (strstr(line, "<heading>")) {
                 char* s1 = strstr(line, "<heading>") + 9;
                 char* s2 = strstr(s1, "</heading>");
@@ -1852,10 +2292,7 @@ static int cmd_view(const char* filepath) {
                 if (tlen >= sizeof(clean_text)) tlen = sizeof(clean_text) - 1;
                 memcpy(clean_text, s1, tlen);
                 clean_text[tlen] = '\0';
-                char fmt[1024];
-                snprintf(fmt, sizeof(fmt), "=== %s ===", clean_text);
-                print_sheet_line("");
-                print_sheet_line(fmt);
+                print_sheet_heading(clean_text);
             } else if (strstr(line, "<body>")) {
                 char* s1 = strstr(line, "<body>") + 6;
                 char* s2 = strstr(s1, "</body>");
@@ -1865,20 +2302,11 @@ static int cmd_view(const char* filepath) {
                 clean_text[tlen] = '\0';
                 print_sheet_line(clean_text);
             } else if (strncmp(line, "# ", 2) == 0) {
-                char fmt[1024];
-                snprintf(fmt, sizeof(fmt), "*** %s ***", line + 2);
-                print_sheet_line("");
-                print_sheet_line(fmt);
-                print_sheet_line("");
+                print_sheet_title(line + 2);
             } else if (strncmp(line, "## ", 3) == 0) {
-                char fmt[1024];
-                snprintf(fmt, sizeof(fmt), "--- %s ---", line + 3);
-                print_sheet_line(fmt);
-                print_sheet_line("");
+                print_sheet_subtitle(line + 3);
             } else if (strncmp(line, "### ", 4) == 0) {
-                char fmt[1024];
-                snprintf(fmt, sizeof(fmt), "=== %s ===", line + 4);
-                print_sheet_line(fmt);
+                print_sheet_heading(line + 4);
             } else {
                 print_sheet_line(line);
             }
@@ -1887,7 +2315,11 @@ static int cmd_view(const char* filepath) {
 
     printf("  |                                                                            |\n");
     printf("  +----------------------------------------------------------------------------+\n");
-    printf("  [ END OF IMMUTABLE BLOCK RECORD: %s ]\n\n", doc->header.block_id);
+    if (doc->header.block_id[0] != '\0') {
+        printf("  [ END OF IMMUTABLE BLOCK RECORD: %s ]\n\n", doc->header.block_id);
+    } else {
+        printf("  [ END OF IMMUTABLE BLOCK RECORD - SHA-512 VERIFIED ]\n\n");
+    }
 
     bmd_document_free(doc);
     return valid ? 0 : 2;
@@ -1920,11 +2352,6 @@ static void run_interactive_shell(void) {
             strcmp(line_buf, "--help") == 0 || strcmp(line_buf, "-h") == 0 ||
             strcmp(line_buf, "?") == 0) {
             print_help();
-            continue;
-        }
-
-        if (strcmp(line_buf, "genkey") == 0) {
-            cmd_genkey();
             continue;
         }
 
@@ -1997,16 +2424,22 @@ static void run_interactive_shell(void) {
                 cmd_inspect(arg1);
             }
         } else if (strcmp(cmd, "sign") == 0) {
-            if (arg1[0] == '\0' || arg2[0] == '\0') {
-                printf("[-] Usage: sign <file.bmd> <seed_hex_64>\n");
+            if (arg1[0] == '\0') {
+                printf("[-] Usage: sign <file.bmd> [seed_hex]\n");
             } else {
-                cmd_sign(arg1, arg2);
+                cmd_sign(arg1, arg2[0] ? arg2 : NULL);
+            }
+        } else if (strcmp(cmd, "compile") == 0) {
+            if (arg1[0] == '\0') {
+                printf("[-] Usage: compile <file.bmd> [seed_hex]\n");
+            } else {
+                cmd_compile(arg1, arg2[0] ? arg2 : NULL);
             }
         } else if (strcmp(cmd, "cosign") == 0) {
-            if (arg1[0] == '\0' || arg2[0] == '\0') {
-                printf("[-] Usage: cosign <file.bmd> <seed_hex_32B>\n");
+            if (arg1[0] == '\0') {
+                printf("[-] Usage: cosign <file.bmd> [seed_hex]\n");
             } else {
-                cmd_cosign(arg1, arg2);
+                cmd_cosign(arg1, arg2[0] ? arg2 : NULL);
                 lock_file_readonly(arg1);
             }
         } else if (strcmp(cmd, "lock") == 0) {
@@ -2105,14 +2538,16 @@ int main(int argc, char** argv) {
         return cmd_verify_json(target_file);
     } else if (strcmp(cmd, "verify") == 0 && argc >= 3) {
         return cmd_verify(argv[2]);
-    } else if (strcmp(cmd, "sign") == 0 && argc >= 4) {
-        return cmd_sign(argv[2], argv[3]);
-    } else if (strcmp(cmd, "cosign") == 0 && argc >= 4) {
-        return cmd_cosign(argv[2], argv[3]);
+    } else if (strcmp(cmd, "sign") == 0 && argc >= 3) {
+        return cmd_sign(argv[2], NULL);
+    } else if (strcmp(cmd, "compile") == 0 && argc >= 3) {
+        return cmd_compile(argv[2], NULL);
+    } else if (strcmp(cmd, "cosign") == 0 && argc >= 3) {
+        int rc = cmd_cosign(argv[2], NULL);
+        if (rc == 0) lock_file_readonly(argv[2]);
+        return rc;
     } else if (strcmp(cmd, "inspect") == 0 && argc >= 3) {
         return cmd_inspect(argv[2]);
-    } else if (strcmp(cmd, "genkey") == 0) {
-        return cmd_genkey();
     } else if (strcmp(cmd, "redact") == 0) {
         const char* target = (argc >= 3) ? argv[2] : NULL;
         return cmd_redact_terminal(target ? target : "");

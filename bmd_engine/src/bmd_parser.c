@@ -244,9 +244,14 @@ bmd_status_t bmd_parser_parse_yaml_header(const char* fm_text, bmd_header_t* out
     }
 
     /* Strict verification of mandatory schema keys */
-    if (out_header->block_id[0] == '\0') return BMD_ERR_MISSING_REQUIRED_KEY;
-    if (out_header->previous_hash[0] == '\0') return BMD_ERR_MISSING_REQUIRED_KEY;
-    if (out_header->current_hash[0] == '\0') return BMD_ERR_MISSING_REQUIRED_KEY;
+    if (out_header->previous_hash[0] == '\0') {
+        memset(out_header->previous_hash, '0', BMD_HASH_HEX_LEN);
+        out_header->previous_hash[BMD_HASH_HEX_LEN] = '\0';
+    }
+    /* In transfer mode, current_hash must be present */
+    if (out_header->mode == BMD_MODE_TRANSFER && out_header->current_hash[0] == '\0') {
+        return BMD_ERR_MISSING_REQUIRED_KEY;
+    }
 
     return BMD_OK;
 }

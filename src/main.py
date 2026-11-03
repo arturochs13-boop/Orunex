@@ -5752,7 +5752,8 @@ class OrunexApp(ctk.CTk):
         self._splash_finishing = False
         try:
             self.deiconify()
-            self.state("normal")
+            # Abrir siempre maximizada en Windows (zoomed = pantalla completa).
+            self.state("zoomed")
             self.update_idletasks()
             # A short topmost pulse defeats Windows' focus-stealing guard so
             # the app is visible immediately when the intro fades away.
@@ -6445,6 +6446,53 @@ class OrunexApp(ctk.CTk):
             remote_ok = True
             try:
                 import _orunex_libs.simplex_bridge as sx # type: ignore
+
+                # ── SCREEN QUESTION / DELEGATION (same routing as desktop chat) ─
+                # A remote text such as "Open TradingView and make an entry" must
+                # be routed through _detect_agent_delegation exactly like the
+                # desktop composer, otherwise the trading half is silently dropped
+                # and only the app is opened.  Detect first, delegate if needed.
+                from core.trade_intent import detect_language
+                remote_language = detect_language(task)
+
+                try:
+                    delegation = self._detect_agent_delegation(task)
+                except Exception as delegation_error:
+                    delegation = None
+                    print(f"[Simplex] delegation detection error: {delegation_error}")
+
+                if delegation is not None:
+                    payload, delegation_message = delegation
+                    if self._delegate_agent_task(
+                        payload,
+                        delegation_message,
+                        language=remote_language,
+                    ):
+                        # Persist delegation context so follow-ups stay on the
+                        # trading path instead of falling into the chat pipeline.
+                        if payload.startswith("!trade"):
+                            self._command_context = {
+                                "last_kind": "trade",
+                                "last_app": "tradingview",
+                                "last_label": "TradingView",
+                                "language": remote_language,
+                            }
+                        elif payload.startswith("!fix"):
+                            self._command_context = {
+                                "last_kind": "bugfix",
+                                "last_app": "android",
+                                "last_label": "Android",
+                                "language": remote_language,
+                            }
+                        self.after(
+                            0,
+                            lambda m=delegation_message: self.append_history(
+                                m, tag="Cerebro"
+                            ),
+                        )
+                        remote_ok = True
+                        return
+
                 # Phase 74: Pure Unified Nucleus (Cerebro)
                 from agents.cerebro import run as cerebro_run # type: ignore
 
@@ -6453,9 +6501,6 @@ class OrunexApp(ctk.CTk):
                 # Execute OS actions (YouTube, apps, power control, etc.)
                 from _orunex_libs.os_executor import intercept_and_execute # type: ignore
                 exec_results = intercept_and_execute(ans)
-
-                from core.trade_intent import detect_language
-                remote_language = detect_language(task)
                 
                 # Clean answer for GUI and Simplex display
                 clean_ans = ans.replace("[Cerebro]", "").replace("[Orunex]", "").replace("[CEREBRO]", "").strip()
