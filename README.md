@@ -3183,7 +3183,7 @@ This appendix records everything this README adds to the project documentation. 
 
 Orunex is designed to be judged on what it can demonstrate: a spoken request that becomes a real artifact, a remote message that becomes a verified paper order, an Android defect that becomes a tested patch, a research question that becomes a styled deck, and a document that becomes a cryptographically sealed record.
 
-The agent provides the reach. Live mode provides the presence. Simplex provides the remote continuity. FAISS provides the memory. The Android app provides the companion surface. Blockchain Markdown provides the custody.
+The agent provides the reach. Live mode provides the presence. Simplex provides the remote continuity. FAISS provides the memory. The Android app provides the companion surface. Blockchain Markdown provides the revolution of new Smart Contracts.
 
 Every capability described in this README is implemented in the repository and reachable from the desktop application, the headless backend, the Simplex bridge, the Android companion, or the BMD CLI.
 
